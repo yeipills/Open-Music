@@ -44,7 +44,7 @@ pub struct Config {
 
 impl Config {
     pub fn load() -> Result<Self> {
-        dotenv::dotenv().ok();
+        dotenvy::dotenv().ok();
 
         let config = Self {
             // Discord

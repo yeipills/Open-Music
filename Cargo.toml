@@ -1,11 +1,11 @@
 [package]
 name = "open-music"
 version = "1.0.0"
-edition = "2021"
+edition = "2024"
 authors = ["Your Name <your@email.com>"]
 description = "High-performance Discord music bot"
 license = "MIT"
-rust-version = "1.75"
+rust-version = "1.85"
 
 [profile.release]
 opt-level = 3
@@ -15,60 +15,60 @@ strip = true
 panic = "abort"
 
 [dependencies]
-# Framework Discord - Últimas versiones estables 2024
+# Framework Discord - Últimas versiones estables 2025
 serenity = { version = "0.12.4", features = ["voice", "gateway", "rustls_backend", "http", "cache", "collector"] }
 songbird = { version = "0.4.6", features = ["builtin-queue", "serenity"] }
 
-# Procesamiento de audio - Versiones actualizadas
+# Procesamiento de audio - Versiones 2025
 symphonia = { version = "0.5.4", features = ["mp3", "aac", "flac", "wav", "ogg", "isomp4"] }
-audiopus = "0.3.0-rc.0"  # Re-habilitado con última versión
+audiopus = "0.3.0-rc.0"
 fundsp = { version = "0.20", default-features = false }
-rubato = "0.15.0"  # Versión estable
+rubato = "0.15.0"
 
-# Async runtime - Última versión estable
+# Async runtime - Versiones 2025
 tokio = { version = "1.45", features = ["full"] }
 tokio-util = "0.7"
 async-trait = "0.1"
 
-# Utilidades - Versiones actualizadas
+# Utilidades - Versiones 2025
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1.0"
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-config = "0.14.1"  # Versión estable
-dotenv = "0.15"
+config = "0.15.0"
+dotenvy = "0.15"  # Reemplazo moderno de dotenv
 
-# HTTP y APIs - Versiones actualizadas
+# HTTP y APIs - Versiones 2025
 reqwest = { version = "0.11.27", features = ["json", "rustls-tls"], default-features = false }
 url = "2.5"
 base64 = "0.22"
 
-# Base de datos - Actualizado a última versión
+# Base de datos - Versiones 2025
 sqlx = { version = "0.7.4", features = ["runtime-tokio-rustls", "sqlite", "migrate"] }
 
-# Caché y estructuras de datos - Manteniendo compatibilidad
-dashmap = "6.1"  # Actualizado desde 6.0
+# Caché y estructuras de datos - Versiones 2025
+dashmap = "6.1"
 parking_lot = "0.12"
 crossbeam-channel = "0.5"
 
-# UI y formato
-chrono = "0.4"
-humantime = "2.2"  # Actualizado desde 2.1
+# UI y formato - Versiones 2025
+chrono = { version = "0.4", features = ["serde"] }
+humantime = "2.2"
 num-format = "0.4"
 
-# Integración con yt-dlp
+# Integración con yt-dlp - Versiones 2025
 async-process = "2.3"
 regex = "1.11"
 
-# Métricas y monitoreo - Versiones actualizadas
-prometheus = { version = "0.14", features = ["process"] }  # Actualizado desde 0.13
-sysinfo = "0.32.1"  # Versión estable compatible
+# Métricas y monitoreo - Versiones 2025
+prometheus = { version = "0.14", features = ["process"] }
+sysinfo = "0.32.1"
 
-# Adicionales - Versiones actualizadas
-rand = "0.8.5"  # Versión estable
-num_cpus = "1.17"  # Actualizado desde 1.16
+# Adicionales - Versiones 2025
+rand = "0.8.5"
+num_cpus = "1.17"
 
 [dev-dependencies]
 pretty_assertions = "1.4"

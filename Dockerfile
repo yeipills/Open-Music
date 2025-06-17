@@ -1,5 +1,5 @@
 # Etapa de construcción
-FROM rust:1.81-alpine AS builder
+FROM rust:1.85-alpine AS builder
 
 # Instalar dependencias de compilación
 RUN apk add --no-cache \
@@ -33,7 +33,7 @@ RUN touch src/main.rs && \
     strip target/release/open-music
 
 # Etapa de runtime ultra-ligera
-FROM alpine:3.20
+FROM alpine:3.21
 
 # Instalar solo dependencias de runtime
 RUN apk add --no-cache \
