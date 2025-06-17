@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  open-music:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: open-music-bot
+    restart: unless-stopped
+    
+    # Recursos limitados para optimización
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
+    
+    environment:
+      # Discord
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - APPLICATION_ID=${APPLICATION_ID}
+      - GUILD_ID=${GUILD_ID:-}
+      
+      # Audio
+      - DEFAULT_VOLUME=0.5
+      - OPUS_BITRATE=128000
+      - FRAME_SIZE=960
+      - MAX_SONG_DURATION=7200
+      
+      # Performance
+      - CACHE_SIZE=100
+      - AUDIO_CACHE_SIZE=50
+      - MAX_QUEUE_SIZE=1000
+      - WORKER_THREADS=2
+      - MAX_PLAYLIST_SIZE=100
+      
+      # APIs (opcionales)
+      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
+      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
+      - TIDAL_API_KEY=${TIDAL_API_KEY:-}
+      - SOUNDCLOUD_CLIENT_ID=${SOUNDCLOUD_CLIENT_ID:-}
+      
+      # Features
+      - ENABLE_EQUALIZER=true
+      - ENABLE_EFFECTS=true
+      - ENABLE_LYRICS=true
+      - ENABLE_AUTOPLAY=false
+      
+      # Sistema
+      - RUST_LOG=info,open_music=debug
+      - RUST_BACKTRACE=1
+    
+    volumes:
+      - ./data:/app/data
+      - ./cache:/app/cache
+    
+    # Red para mejor rendimiento
+    network_mode: host
+    
+    # Health check
+    healthcheck:
+      test: ["/app/open-music", "--health-check"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    
+    # Seguridad
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=10M
+    
+    # Logging optimizado
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        compress: "true"
+
+# Volúmenes con configuración específica
+volumes:
+  data:
+    driver: local
+  cache:
+    driver: local

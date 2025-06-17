@@ -1,0 +1,80 @@
+# === RUST ===
+/target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# === ENVIRONMENT & CONFIG ===
+.env
+.env.*
+!.env.example
+config.toml
+config.json
+settings.json
+
+# === DATABASE ===
+*.db
+*.sqlite
+*.sqlite3
+/data/
+
+# === LOGS ===
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# === CACHE & TEMP ===
+audio_cache/
+temp_audio/
+downloads/
+bot_cache/
+voice_cache/
+playlist_cache/
+/cache/
+*.tmp
+*.temp
+
+# === IDE & EDITORS ===
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+
+# === OS SPECIFIC ===
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# === DOCKER ===
+.dockerignore
+
+# === BACKUP FILES ===
+*.bak
+*.backup
+*.old
+
+# === RUNTIME ===
+*.pid
+*.seed
+*.pid.lock
+
+# === METRICS & MONITORING ===
+metrics/
+monitoring/
+
+# === TEST COVERAGE ===
+coverage/
+lcov.info
+*.profraw
+
+# === DOCUMENTATION DRAFTS ===
+*.draft.md
+NOTES.md
