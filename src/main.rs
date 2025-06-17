@@ -79,10 +79,21 @@ async fn main() -> Result<()> {
 }
 
 async fn initialize_database(config: &Config) -> Result<SqlitePool> {
+    let db_path = config.data_dir.join("openmusic.db");
     let db_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| format!("sqlite://{}/openmusic.db", config.data_dir.display()));
+        .unwrap_or_else(|_| format!("sqlite://{}", db_path.display()));
 
-    let pool = SqlitePool::connect(&db_url).await?;
+    // Asegurar que el directorio de datos existe
+    std::fs::create_dir_all(&config.data_dir)?;
+
+    // Configurar opciones de conexión SQLite
+    use sqlx::sqlite::SqliteConnectOptions;
+    use std::str::FromStr;
+    
+    let options = SqliteConnectOptions::from_str(&db_url)?
+        .create_if_missing(true);
+
+    let pool = SqlitePool::connect_with(options).await?;
 
     // Ejecutar migraciones
     sqlx::migrate!("./migrations").run(&pool).await?;
