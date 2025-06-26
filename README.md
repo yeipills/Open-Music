@@ -6,16 +6,15 @@ Bot de música para Discord de alto rendimiento construido en Rust con arquitect
 
 **✅ PROYECTO 100% FUNCIONAL** - Bot de música para Discord completamente operativo y listo para despliegue con las últimas tecnologías.
 
-### Recent Updates (2025)
-- ✅ Updated to Rust 2024 Edition
-- ✅ Dependencies updated for 2025 compatibility
-- ✅ Serenity 0.12.4 + Songbird 0.4.6 stable
-- ✅ Complete command system (19 slash commands)
-- ✅ Advanced audio player with equalizer presets
-- ✅ Interactive UI with buttons and embeds
-- ✅ Advanced LRU cache with TTL
-- ✅ JSON storage for configurations
-- ✅ Docker optimized for 2025
+### Características Principales
+- ✅ Rust Edition actualizada y dependencias modernas
+- ✅ Serenity + Songbird estables
+- ✅ Sistema completo de comandos slash
+- ✅ Reproductor de audio avanzado con presets de ecualizador
+- ✅ Interfaz interactiva con botones y embeds
+- ✅ Cache LRU avanzado con TTL y sistema de monitoreo
+- ✅ JSON storage para configuraciones
+- ✅ Docker optimizado para producción
 
 ### Inicio Rápido
 ```bash
@@ -23,14 +22,14 @@ cargo build --release  # Compila exitosamente
 cargo run              # Listo para usar
 ```
 
-## 🏗️ Architecture
+## 🏗️ Arquitectura
 
-### Core Technologies (2025)
-- **Framework**: Serenity 0.12.4 + Songbird 0.4.6
+### Tecnologías Principales
+- **Framework**: Serenity + Songbird (versiones estables basadas en las más recientes)
 - **Audio**: Symphonia + FunDSP + Opus  
-- **Storage**: JSON files
-- **Runtime**: Tokio 1.45 async
-- **Container**: Docker Alpine 3.21
+- **Almacenamiento**: JSON files
+- **Runtime**: Tokio async
+- **Contenedor**: Docker Alpine
 
 ### Módulos Principales
 ```
