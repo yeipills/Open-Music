@@ -84,6 +84,7 @@ impl VoiceEventHandler for TrackStartHandler {
 /// Handler para cambios de estado de voz (usuarios entrando/saliendo)
 pub struct VoiceStateHandler {
     pub guild_id: GuildId,
+    #[allow(dead_code)]
     pub bot_user_id: UserId,
 }
 
@@ -147,6 +148,7 @@ async fn send_now_playing(ctx: &Context, channel_id: ChannelId, track: &QueueIte
 }
 
 /// Registra todos los event handlers necesarios para un guild
+#[allow(dead_code)]
 pub fn register_voice_events(
     handler: &mut songbird::Call,
     guild_id: GuildId,

@@ -25,11 +25,7 @@ pub struct Config {
     pub data_dir: PathBuf,
     pub cache_dir: PathBuf,
 
-    // APIs (Opcionales)
-    pub spotify_client_id: Option<String>,
-    pub spotify_client_secret: Option<String>,
-    pub tidal_api_key: Option<String>,
-    pub soundcloud_client_id: Option<String>,
+    // APIs (Opcionales) - Removed unused integrations
 
     // Límites
     pub max_song_duration: u64,   // En segundos
@@ -37,8 +33,6 @@ pub struct Config {
 
     // Features
     pub enable_equalizer: bool,
-    pub enable_effects: bool,
-    pub enable_lyrics: bool,
     pub enable_autoplay: bool,
 }
 
@@ -89,11 +83,6 @@ impl Config {
                 .unwrap_or_else(|_| "/app/cache".to_string())
                 .into(),
 
-            // APIs
-            spotify_client_id: std::env::var("SPOTIFY_CLIENT_ID").ok(),
-            spotify_client_secret: std::env::var("SPOTIFY_CLIENT_SECRET").ok(),
-            tidal_api_key: std::env::var("TIDAL_API_KEY").ok(),
-            soundcloud_client_id: std::env::var("SOUNDCLOUD_CLIENT_ID").ok(),
 
             // Límites
             max_song_duration: std::env::var("MAX_SONG_DURATION")
@@ -105,12 +94,6 @@ impl Config {
 
             // Features
             enable_equalizer: std::env::var("ENABLE_EQUALIZER")
-                .unwrap_or_else(|_| "true".to_string())
-                .parse()?,
-            enable_effects: std::env::var("ENABLE_EFFECTS")
-                .unwrap_or_else(|_| "true".to_string())
-                .parse()?,
-            enable_lyrics: std::env::var("ENABLE_LYRICS")
                 .unwrap_or_else(|_| "true".to_string())
                 .parse()?,
             enable_autoplay: std::env::var("ENABLE_AUTOPLAY")
@@ -125,6 +108,7 @@ impl Config {
         Ok(config)
     }
 
+    #[allow(dead_code)]
     pub fn validate(&self) -> Result<()> {
         if self.default_volume < 0.0 || self.default_volume > 2.0 {
             anyhow::bail!("Volumen debe estar entre 0.0 y 2.0");

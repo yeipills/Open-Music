@@ -11,6 +11,7 @@ use serenity::model::id::UserId;
 
 /// Información de metadata de track
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct TrackMetadata {
     pub title: String,
     pub artist: Option<String>,
@@ -23,23 +24,26 @@ pub struct TrackMetadata {
 
 /// Cliente para interactuar con YouTube/yt-dlp
 pub struct YouTubeClient {
+    #[allow(dead_code)]
     rate_limiter: Option<tokio::sync::Semaphore>,
 }
 
 /// Información extraída de yt-dlp
 #[derive(Debug, Deserialize)]
-struct YtDlpInfo {
-    id: String,
-    title: String,
-    duration: Option<f64>,
-    uploader: Option<String>,
-    thumbnail: Option<String>,
-    webpage_url: String,
-    formats: Option<Vec<Format>>,
-    is_live: Option<bool>,
+#[allow(dead_code)]
+pub struct YtDlpInfo {
+    pub id: String,
+    pub title: String,
+    pub duration: Option<f64>,
+    pub uploader: Option<String>,
+    pub thumbnail: Option<String>,
+    pub webpage_url: String,
+    pub formats: Option<Vec<Format>>,
+    pub is_live: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct Format {
     format_id: String,
     url: String,
@@ -51,11 +55,12 @@ impl YouTubeClient {
     pub fn new() -> Self {
         Self {
             // Limitar requests concurrentes para evitar rate limiting
-            rate_limiter: Some(tokio::sync::Semaphore::new(3)),
+            rate_limiter: Some(tokio::sync::Semaphore::new(10)),
         }
     }
 
     /// Busca videos en YouTube
+    #[allow(dead_code)]
     pub async fn search_metadata(&self, query: &str, limit: usize) -> Result<Vec<TrackMetadata>> {
         let _permit = self.rate_limiter.as_ref().unwrap().acquire().await?;
 
@@ -94,6 +99,7 @@ impl YouTubeClient {
     }
 
     /// Obtiene información de una URL específica
+    #[allow(dead_code)]
     pub async fn get_info(&self, url: &str) -> Result<TrackMetadata> {
         let _permit = self.rate_limiter.as_ref().unwrap().acquire().await?;
 
@@ -118,6 +124,7 @@ impl YouTubeClient {
     }
 
     /// Obtiene la URL de streaming de audio
+    #[allow(dead_code)]
     pub async fn get_stream_url(&self, url: &str) -> Result<String> {
         let _permit = self.rate_limiter.as_ref().unwrap().acquire().await?;
 
@@ -150,16 +157,21 @@ impl YouTubeClient {
         Ok(stream_url)
     }
 
-    /// Crea un Input de Songbird para reproducción
+    /// Crea un Input de Songbird para reproducción (Songbird 0.5.0)
+    #[allow(dead_code)]
     pub async fn create_input(&self, url: &str) -> Result<Input> {
-        // Usar YoutubeDl de songbird para manejo optimizado
+        // Songbird 0.5.0: usar lazy input creation
+        use songbird::input::YoutubeDl;
+        
         let client = reqwest::Client::new();
-        let source = songbird::input::YoutubeDl::new(client, url.to_string());
-
-        Ok(source.into())
+        // YoutubeDl ahora es lazy por defecto
+        let input = YoutubeDl::new(client, url.to_string());
+        
+        Ok(input.into())
     }
 
     /// Obtiene información de una playlist
+    #[allow(dead_code)]
     pub async fn get_playlist_info(
         &self,
         url: &str,
@@ -200,6 +212,7 @@ impl YouTubeClient {
     }
 
     /// Extrae metadata de una URL
+    #[allow(dead_code)]
     pub async fn extract_metadata(&self, url: &str) -> Result<TrackMetadata> {
         let info = self.get_info(url).await?;
         Ok(info)
@@ -208,10 +221,19 @@ impl YouTubeClient {
     /// Verifica si una URL es válida para YouTube
     pub fn is_youtube_url(url: &str) -> bool {
         let youtube_regex = Regex::new(
-            r"^(https?://)?(www\.)?(youtube\.com/(watch\?v=|embed/|v/)|youtu\.be/|music\.youtube\.com/)"
+            r"^(https?://)?(www\.)?(youtube\.com/(watch\?v=|embed/|v/|playlist\?list=)|youtu\.be/|music\.youtube\.com/)"
         ).unwrap();
 
         youtube_regex.is_match(url)
+    }
+
+    /// Verifica si una URL es una playlist de YouTube
+    pub fn is_youtube_playlist(url: &str) -> bool {
+        let playlist_regex = Regex::new(
+            r"^(https?://)?(www\.)?(youtube\.com/playlist\?list=|music\.youtube\.com/playlist\?list=)"
+        ).unwrap();
+
+        playlist_regex.is_match(url) || url.contains("&list=") || url.contains("?list=")
     }
 
     /// Convierte YtDlpInfo a TrackMetadata
@@ -228,6 +250,7 @@ impl YouTubeClient {
     }
 
     /// Convierte YtDlpInfo a TrackSource
+    #[allow(dead_code)]
     fn info_to_track_source(&self, info: YtDlpInfo, requested_by: UserId) -> TrackSource {
         let mut track = TrackSource::new(
             info.title,
@@ -251,19 +274,24 @@ impl YouTubeClient {
         track
     }
 
-    /// Busca videos con información detallada para selección
-    pub async fn search_detailed(&self, query: &str, limit: usize) -> Result<Vec<TrackMetadata>> {
+    /// Búsqueda rápida y optimizada
+    pub async fn search_detailed(&self, query: &str, _limit: usize) -> Result<Vec<TrackMetadata>> {
         let _permit = self.rate_limiter.as_ref().unwrap().acquire().await?;
 
-        info!("🔍 Búsqueda detallada en YouTube: {}", query);
+        info!("⚡ Búsqueda rápida en YouTube: {}", query);
 
-        let search_query = format!("ytsearch{}:{}", limit, query);
+        // Limitar a 3 resultados para mayor velocidad
+        let search_query = format!("ytsearch3:{}", query);
         
         let output = Command::new("yt-dlp")
             .args(&[
-                "--no-playlist",
                 "--dump-json",
-                "--no-warnings",
+                "--no-warnings", 
+                "--no-playlist",
+                "--simulate",
+                "--socket-timeout", "8",
+                "--retries", "1",
+                "--no-cache-dir",
                 &search_query,
             ])
             .output()
@@ -278,63 +306,84 @@ impl YouTubeClient {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut results = Vec::new();
 
+        if stdout.trim().is_empty() {
+            info!("⚠️ yt-dlp devolvió resultado vacío para: {}", query);
+            anyhow::bail!("No se encontraron resultados para: {}", query);
+        }
+
         for line in stdout.lines() {
-            if let Ok(info) = serde_json::from_str::<YtDlpInfo>(line) {
-                results.push(self.info_to_metadata(info));
+            if line.trim().is_empty() {
+                continue;
+            }
+            
+            match serde_json::from_str::<YtDlpInfo>(line) {
+                Ok(info) => {
+                    results.push(self.info_to_metadata(info));
+                    if results.len() >= 3 {
+                        break; // Limitar a 3 resultados
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!("Error parseando línea JSON: {} - línea: {}", e, line);
+                    continue;
+                }
             }
         }
 
+        if results.is_empty() {
+            anyhow::bail!("No se pudieron parsear resultados válidos");
+        }
+
+        info!("✅ Encontrados {} resultados válidos", results.len());
         Ok(results)
     }
 
-    /// Filtra resultados por relevancia y calidad
+    /// Filtrado rápido y simple
     pub fn filter_results(&self, results: Vec<TrackMetadata>, query: &str) -> Vec<TrackMetadata> {
         let mut filtered = results;
         let query_lower = query.to_lowercase();
+        let query_words: Vec<&str> = query_lower.split_whitespace().collect();
         
-        // Ordenar por relevancia
+        info!("⚡ Filtrado rápido de {} resultados", filtered.len());
+        
+        // Filtro básico y rápido - solo duración válida
+        filtered.retain(|track| {
+            if let Some(duration) = track.duration {
+                let minutes = duration.as_secs() / 60;
+                minutes >= 1 && minutes <= 60 // Entre 1 minuto y 1 hora (más restrictivo = más rápido)
+            } else {
+                !track.is_live // Excluir streams en vivo
+            }
+        });
+        
+        // Ordenamiento rápido - solo por palabras coincidentes
         filtered.sort_by(|a, b| {
             let a_title = a.title.to_lowercase();
             let b_title = b.title.to_lowercase();
             
-            // Priorizar coincidencias exactas
-            let a_exact = a_title.contains(&query_lower);
-            let b_exact = b_title.contains(&query_lower);
+            // Simple scoring: contar palabras que coinciden
+            let a_matches = query_words.iter().filter(|&&word| a_title.contains(word)).count();
+            let b_matches = query_words.iter().filter(|&&word| b_title.contains(word)).count();
             
-            match (a_exact, b_exact) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => {
-                    // Si ambos tienen o no tienen coincidencia exacta, ordenar por duración
-                    match (a.duration, b.duration) {
-                        (Some(dur_a), Some(dur_b)) => {
-                            // Preferir duraciones entre 1-10 minutos
-                            let score_a = duration_score(dur_a);
-                            let score_b = duration_score(dur_b);
-                            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
-                        }
-                        (Some(_), None) => std::cmp::Ordering::Less,
-                        (None, Some(_)) => std::cmp::Ordering::Greater,
-                        _ => std::cmp::Ordering::Equal,
-                    }
-                }
-            }
+            b_matches.cmp(&a_matches)
         });
         
-        // Filtrar videos muy largos o muy cortos
-        filtered.retain(|track| {
-            if let Some(duration) = track.duration {
-                let minutes = duration.as_secs() / 60;
-                minutes >= 1 && minutes <= 600 // Entre 1 minuto y 10 horas
+        // Log del mejor resultado
+        if let Some(best) = filtered.first() {
+            let duration_str = if let Some(dur) = best.duration {
+                format!("{:.1}min", dur.as_secs() as f64 / 60.0)
             } else {
-                !track.is_live // Excluir streams en vivo por defecto
-            }
-        });
+                "Live".to_string()
+            };
+            let artist_str = best.artist.as_ref().map(|a| format!(" by {}", a)).unwrap_or_default();
+            info!("  🎯 Mejor resultado: {} {} [{}]", best.title, artist_str, duration_str);
+        }
         
         filtered
     }
 
     /// Actualiza yt-dlp (debe ejecutarse periódicamente)
+    #[allow(dead_code)]
     pub async fn update_ytdlp() -> Result<()> {
         info!("🔄 Actualizando yt-dlp...");
 
@@ -353,24 +402,6 @@ impl YouTubeClient {
     }
 }
 
-/// Calcula score de relevancia basado en duración
-fn duration_score(duration: Duration) -> f64 {
-    let minutes = duration.as_secs() as f64 / 60.0;
-    
-    if minutes < 1.0 {
-        0.1 // Muy corto
-    } else if minutes <= 3.0 {
-        0.9 // Muy bueno para música
-    } else if minutes <= 6.0 {
-        1.0 // Perfecto para música
-    } else if minutes <= 10.0 {
-        0.8 // Aceptable
-    } else if minutes <= 20.0 {
-        0.6 // Posiblemente mix o podcast
-    } else {
-        0.3 // Muy largo, probablemente no es música
-    }
-}
 
 #[async_trait::async_trait]
 impl MusicSource for YouTubeClient {
@@ -484,6 +515,39 @@ mod tests {
         assert!(YouTubeClient::is_youtube_url(
             "https://music.youtube.com/watch?v=test"
         ));
+        assert!(YouTubeClient::is_youtube_url(
+            "https://www.youtube.com/playlist?list=PLtest"
+        ));
         assert!(!YouTubeClient::is_youtube_url("https://example.com/video"));
+    }
+
+    #[test]
+    fn test_youtube_playlist_detection() {
+        // URLs de playlist explícitas
+        assert!(YouTubeClient::is_youtube_playlist(
+            "https://www.youtube.com/playlist?list=PLtest123"
+        ));
+        assert!(YouTubeClient::is_youtube_playlist(
+            "https://music.youtube.com/playlist?list=PLtest123"
+        ));
+        
+        // URLs con parámetro list
+        assert!(YouTubeClient::is_youtube_playlist(
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLtest123"
+        ));
+        assert!(YouTubeClient::is_youtube_playlist(
+            "https://www.youtube.com/watch?list=PLtest123&v=dQw4w9WgXcQ"
+        ));
+        
+        // URLs que NO son playlists
+        assert!(!YouTubeClient::is_youtube_playlist(
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        ));
+        assert!(!YouTubeClient::is_youtube_playlist(
+            "https://youtu.be/dQw4w9WgXcQ"
+        ));
+        assert!(!YouTubeClient::is_youtube_playlist(
+            "https://example.com/playlist"
+        ));
     }
 }

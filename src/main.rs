@@ -1,7 +1,6 @@
 use anyhow::Result;
 use serenity::{model::gateway::GatewayIntents, Client};
 use songbird::{SerenityInit, Songbird};
-use sqlx::sqlite::SqlitePool;
 use std::sync::Arc;
 use tracing::{error, info};
 
@@ -9,12 +8,16 @@ mod audio;
 mod bot;
 mod cache;
 mod config;
+mod monitoring;
 mod sources;
+mod storage;
 mod ui;
 
 use crate::bot::OpenMusicBot;
 use crate::cache::MusicCache;
 use crate::config::Config;
+use crate::monitoring::{MonitoringSystem, MonitoringConfig};
+use crate::storage::JsonStorage;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -38,11 +41,18 @@ async fn main() -> Result<()> {
         return health_check().await;
     }
 
-    // Inicializar base de datos
-    let db_pool = initialize_database(&config).await?;
+    // Inicializar almacenamiento JSON
+    let storage = Arc::new(tokio::sync::Mutex::new(
+        JsonStorage::new(config.data_dir.clone()).await?
+    ));
 
     // Inicializar caché
     let cache = Arc::new(MusicCache::new(config.cache_size));
+
+    // Inicializar sistema de monitoreo
+    let monitoring_config = MonitoringConfig::default();
+    let _monitoring = Arc::new(MonitoringSystem::new(monitoring_config));
+    info!("📊 Sistema de monitoreo activado");
 
     // Configurar intents mínimos necesarios
     let intents = GatewayIntents::GUILDS
@@ -51,7 +61,7 @@ async fn main() -> Result<()> {
         | GatewayIntents::MESSAGE_CONTENT;
 
     // Crear handler del bot
-    let handler = OpenMusicBot::new(config.clone(), db_pool, cache);
+    let handler = OpenMusicBot::new(config.clone(), storage, cache);
 
     // Construir cliente
     let _songbird = Songbird::serenity();
@@ -76,30 +86,6 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
-}
-
-async fn initialize_database(config: &Config) -> Result<SqlitePool> {
-    let db_path = config.data_dir.join("openmusic.db");
-    let db_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| format!("sqlite://{}", db_path.display()));
-
-    // Asegurar que el directorio de datos existe
-    std::fs::create_dir_all(&config.data_dir)?;
-
-    // Configurar opciones de conexión SQLite
-    use sqlx::sqlite::SqliteConnectOptions;
-    use std::str::FromStr;
-    
-    let options = SqliteConnectOptions::from_str(&db_url)?
-        .create_if_missing(true);
-
-    let pool = SqlitePool::connect_with(options).await?;
-
-    // Ejecutar migraciones
-    sqlx::migrate!("./migrations").run(&pool).await?;
-
-    info!("✅ Base de datos inicializada");
-    Ok(pool)
 }
 
 async fn health_check() -> Result<()> {

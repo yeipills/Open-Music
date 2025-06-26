@@ -4,7 +4,6 @@ use serenity::{
     all::{ChannelId, Context, EventHandler, GuildId, Interaction, Ready, VoiceState},
     async_trait,
 };
-use sqlx::SqlitePool;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
@@ -13,25 +12,26 @@ pub mod events;
 pub mod handlers;
 pub mod search;
 
-use crate::{audio::player::AudioPlayer, cache::MusicCache, config::Config};
+use crate::{audio::player::AudioPlayer, cache::MusicCache, config::Config, storage::JsonStorage};
 
 /// Handler principal del bot
 pub struct OpenMusicBot {
     config: Arc<Config>,
-    db_pool: SqlitePool,
+    #[allow(dead_code)]
+    pub storage: Arc<tokio::sync::Mutex<JsonStorage>>,
     cache: Arc<MusicCache>,
     pub player: Arc<AudioPlayer>,
     voice_handlers: DashMap<GuildId, Arc<tokio::sync::Mutex<songbird::Call>>>,
 }
 
 impl OpenMusicBot {
-    pub fn new(config: Config, db_pool: SqlitePool, cache: Arc<MusicCache>) -> Self {
+    pub fn new(config: Config, storage: Arc<tokio::sync::Mutex<JsonStorage>>, cache: Arc<MusicCache>) -> Self {
         let config = Arc::new(config);
         let player = Arc::new(AudioPlayer::new());
 
         Self {
             config,
-            db_pool,
+            storage,
             cache,
             player,
             voice_handlers: DashMap::new(),
@@ -42,16 +42,41 @@ impl OpenMusicBot {
     async fn register_commands(&self, ctx: &Context) -> Result<()> {
         info!("📝 Registrando comandos slash...");
 
+        // Verificar permisos del bot
+        let bot_id = ctx.cache.current_user().id;
+        info!("🤖 Bot ID: {}", bot_id);
+        info!("🔧 Application ID: {}", self.config.application_id);
+
         // Registrar comandos globales o por guild según configuración
-        if let Some(guild_id) = self.config.guild_id {
-            // Modo desarrollo: registrar en guild específica
-            commands::register_guild_commands(ctx, GuildId::from(guild_id)).await?;
-        } else {
-            // Modo producción: registrar globalmente
-            commands::register_global_commands(ctx).await?;
+        match self.config.guild_id {
+            Some(guild_id) => {
+                info!("🏠 Registrando comandos para guild específica: {}", guild_id);
+                let guild_id = GuildId::from(guild_id);
+                
+                // Verificar que el bot esté en la guild
+                if !ctx.cache.guilds().contains(&guild_id) {
+                    warn!("⚠️ El bot no está en la guild especificada: {}", guild_id);
+                    return Ok(()); // No fallar, pero no registrar comandos
+                }
+                
+                commands::register_guild_commands(ctx, guild_id).await
+                    .map_err(|e| {
+                        error!("❌ Error registrando comandos de guild: {:?}", e);
+                        anyhow::anyhow!("No se pudieron registrar comandos de guild. Verifica que el bot tenga permisos de 'applications.commands' en la guild.")
+                    })?;
+                info!("✅ Comandos de guild registrados para: {}", guild_id);
+            },
+            None => {
+                info!("🌐 Registrando comandos globalmente");
+                commands::register_global_commands(ctx).await
+                    .map_err(|e| {
+                        error!("❌ Error registrando comandos globales: {:?}", e);
+                        anyhow::anyhow!("No se pudieron registrar comandos globales. Verifica que el bot tenga permisos de 'applications.commands'.")
+                    })?;
+                info!("✅ Comandos globales registrados");
+            }
         }
 
-        info!("✅ Comandos registrados exitosamente");
         Ok(())
     }
 

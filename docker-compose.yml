@@ -12,11 +12,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 256M
+          cpus: '2.0'
+          memory: 512M
         reservations:
           cpus: '0.5'
-          memory: 128M
+          memory: 256M
     
     environment:
       # Discord
@@ -37,16 +37,9 @@ services:
       - WORKER_THREADS=2
       - MAX_PLAYLIST_SIZE=100
       
-      # APIs (opcionales)
-      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
-      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
-      - TIDAL_API_KEY=${TIDAL_API_KEY:-}
-      - SOUNDCLOUD_CLIENT_ID=${SOUNDCLOUD_CLIENT_ID:-}
       
       # Features
       - ENABLE_EQUALIZER=true
-      - ENABLE_EFFECTS=true
-      - ENABLE_LYRICS=true
       - ENABLE_AUTOPLAY=false
       
       # Sistema
@@ -57,12 +50,13 @@ services:
       - ./data:/app/data
       - ./cache:/app/cache
     
-    # Red para mejor rendimiento
-    network_mode: host
+    # Red configurada
+    ports:
+      - "8080:8080"  # Puerto para métricas si fuera necesario
     
     # Health check
     healthcheck:
-      test: ["/app/open-music", "--health-check"]
+      test: ["CMD", "pgrep", "open-music"]
       interval: 30s
       timeout: 3s
       retries: 3

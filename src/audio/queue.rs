@@ -16,6 +16,7 @@ pub struct QueueItem {
     pub thumbnail: Option<String>,
     pub url: String,
     pub requested_by: UserId,
+    #[allow(dead_code)]
     pub added_at: DateTime<Utc>,
 }
 
@@ -79,6 +80,7 @@ impl MusicQueue {
     }
 
     /// Agrega múltiples tracks (playlist)
+    #[allow(dead_code)]
     pub fn add_playlist(&mut self, sources: Vec<TrackSource>) -> Result<usize> {
         let available_space = self.max_size.saturating_sub(self.items.len());
         let to_add = sources.len().min(available_space);
@@ -92,7 +94,7 @@ impl MusicQueue {
         Ok(to_add)
     }
 
-    /// Obtiene el siguiente track
+    /// Obtiene el siguiente track (FIFO - First In, First Out)
     pub fn next_track(&mut self) -> Option<TrackSource> {
         // Guardar current en history si existe
         if let Some(current) = self.current.take() {
@@ -101,11 +103,12 @@ impl MusicQueue {
             // Si está en modo loop track, devolver el mismo
             if self.loop_mode == LoopMode::Track {
                 self.current = Some(current.clone());
+                info!("🔂 Repitiendo track: {}", current.title);
                 return Some(current.source);
             }
         }
 
-        // Obtener siguiente de la cola
+        // Obtener siguiente de la cola - SIEMPRE en orden FIFO a menos que shuffle esté activo
         let next = if self.shuffle && !self.items.is_empty() {
             // Modo shuffle: elegir aleatorio
             let mut rng = rand::thread_rng();
@@ -114,26 +117,35 @@ impl MusicQueue {
                 .choose(&mut rng)
                 .copied()
                 .unwrap_or(0);
-            self.items.remove(index)
+            let selected = self.items.remove(index);
+            info!("🔀 Seleccionado aleatoriamente: {}", selected.as_ref().map(|s| s.title.as_str()).unwrap_or("Unknown"));
+            selected
         } else {
-            // Modo normal: siguiente en orden
-            self.items.pop_front()
+            // Modo normal: ESTRICTO FIFO - primero en entrar, primero en salir
+            let next_item = self.items.pop_front();
+            if let Some(ref item) = next_item {
+                info!("➡️ Siguiente en cola (FIFO): {}", item.title);
+            }
+            next_item
         };
 
         if let Some(next_item) = next {
             // Si está en modo loop queue, agregar al final
             if self.loop_mode == LoopMode::Queue {
                 self.items.push_back(next_item.clone());
+                info!("🔁 Track agregado al final por loop de cola: {}", next_item.title);
             }
 
             self.current = Some(next_item.clone());
             Some(next_item.source)
         } else {
+            info!("📭 Cola vacía, no hay siguiente track");
             None
         }
     }
 
     /// Salta canciones
+    #[allow(dead_code)]
     pub fn skip(&mut self, amount: usize) -> usize {
         let skipped = amount.min(self.items.len());
 
@@ -153,6 +165,7 @@ impl MusicQueue {
     }
 
     /// Limpia duplicados
+    #[allow(dead_code)]
     pub fn clear_duplicates(&mut self) -> usize {
         let mut seen = std::collections::HashSet::new();
         let original_len = self.items.len();
@@ -167,6 +180,7 @@ impl MusicQueue {
     }
 
     /// Limpia tracks de un usuario específico
+    #[allow(dead_code)]
     pub fn clear_user_tracks(&mut self, user_id: UserId) -> usize {
         let original_len = self.items.len();
         self.items.retain(|item| item.requested_by != user_id);
@@ -179,6 +193,7 @@ impl MusicQueue {
     }
 
     /// Mezcla la cola
+    #[allow(dead_code)]
     pub fn shuffle_queue(&mut self) {
         let mut items: Vec<_> = self.items.drain(..).collect();
         let mut rng = rand::thread_rng();
@@ -221,21 +236,25 @@ impl MusicQueue {
     }
 
     /// Obtiene el track actual
+    #[allow(dead_code)]
     pub fn current(&self) -> Option<&QueueItem> {
         self.current.as_ref()
     }
 
     /// Verifica si la cola está vacía
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.items.is_empty() && self.current.is_none()
     }
 
     /// Obtiene el tamaño de la cola
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
     /// Mueve un track a una nueva posición
+    #[allow(dead_code)]
     pub fn move_track(&mut self, from: usize, to: usize) -> Result<()> {
         if from >= self.items.len() || to >= self.items.len() {
             anyhow::bail!("Índice fuera de rango");
@@ -254,6 +273,7 @@ impl MusicQueue {
     }
 
     /// Elimina un track específico
+    #[allow(dead_code)]
     pub fn remove_track(&mut self, index: usize) -> Result<()> {
         if index >= self.items.len() {
             anyhow::bail!("Índice fuera de rango");
@@ -290,16 +310,19 @@ impl MusicQueue {
     /// Métodos adicionales para compatibilidad
 
     /// Obtiene el track actual como TrackSource
+    #[allow(dead_code)]
     pub fn current_track(&self) -> Option<TrackSource> {
         self.current.as_ref().map(|item| item.source.clone())
     }
 
     /// Obtiene todos los tracks como Vec<TrackSource>
+    #[allow(dead_code)]
     pub fn get_tracks(&self) -> Vec<TrackSource> {
         self.items.iter().map(|item| item.source.clone()).collect()
     }
 
     /// Obtiene la posición actual
+    #[allow(dead_code)]
     pub fn current_position(&self) -> usize {
         if self.current.is_some() {
             0
@@ -309,11 +332,13 @@ impl MusicQueue {
     }
 
     /// Verifica si shuffle está activado
+    #[allow(dead_code)]
     pub fn is_shuffle(&self) -> bool {
         self.shuffle
     }
 
     /// Verifica si loop está activado
+    #[allow(dead_code)]
     pub fn is_loop(&self) -> bool {
         matches!(self.loop_mode, LoopMode::Track | LoopMode::Queue)
     }
@@ -333,6 +358,7 @@ impl MusicQueue {
     }
 
     /// Configura loop simple (on/off)
+    #[allow(dead_code)]
     pub fn set_loop(&mut self, enabled: bool) {
         if enabled {
             self.set_loop_mode(LoopMode::Queue);
@@ -355,13 +381,15 @@ pub struct QueueInfo {
 impl QueueInfo {
     /// Obtiene una página específica de la cola
     pub fn get_page(&self, page: usize, items_per_page: usize) -> QueuePage {
-        let start = (page - 1) * items_per_page;
+        let safe_page = page.max(1);
+        let start = (safe_page - 1) * items_per_page;
         let end = (start + items_per_page).min(self.items.len());
+        let total_pages = if self.total_items == 0 { 1 } else { (self.total_items + items_per_page - 1) / items_per_page };
 
         QueuePage {
-            items: self.items[start..end].to_vec(),
-            current_page: page,
-            total_pages: (self.total_items + items_per_page - 1) / items_per_page,
+            items: if start < self.items.len() { self.items[start..end].to_vec() } else { Vec::new() },
+            current_page: safe_page,
+            total_pages,
             total_items: self.total_items,
         }
     }
@@ -372,5 +400,6 @@ pub struct QueuePage {
     pub items: Vec<QueueItem>,
     pub current_page: usize,
     pub total_pages: usize,
+    #[allow(dead_code)]
     pub total_items: usize,
 }

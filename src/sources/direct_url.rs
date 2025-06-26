@@ -8,6 +8,7 @@ use async_trait::async_trait;
 pub struct DirectUrlClient {}
 
 impl DirectUrlClient {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {}
     }

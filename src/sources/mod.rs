@@ -1,8 +1,6 @@
 pub mod direct_url;
-pub mod soundcloud;
-pub mod spotify;
-pub mod tidal;
 pub mod youtube;
+pub mod youtube_fast;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -11,10 +9,8 @@ use songbird::input::Input;
 use std::time::Duration;
 
 pub use direct_url::DirectUrlClient;
-pub use soundcloud::SoundCloudClient;
-pub use spotify::SpotifyClient;
-pub use tidal::TidalClient;
 pub use youtube::YouTubeClient;
+pub use youtube_fast::YouTubeFastClient;
 
 /// Trait común para todas las fuentes de música
 #[async_trait]
@@ -26,12 +22,14 @@ pub trait MusicSource {
     async fn get_track(&self, url: &str) -> Result<TrackSource>;
 
     /// Obtiene tracks de una playlist
+    #[allow(dead_code)]
     async fn get_playlist(&self, url: &str) -> Result<Vec<TrackSource>>;
 
     /// Verifica si la URL es válida para esta fuente
     fn is_valid_url(&self, url: &str) -> bool;
 
     /// Nombre de la fuente
+    #[allow(dead_code)]
     fn source_name(&self) -> &'static str;
 }
 
@@ -78,6 +76,7 @@ impl TrackSource {
     pub fn url(&self) -> String {
         self.url.clone()
     }
+    #[allow(dead_code)]
     pub fn stream_url(&self) -> Option<String> {
         self.stream_url.clone()
     }
@@ -104,47 +103,62 @@ impl TrackSource {
         self
     }
 
+    #[allow(dead_code)]
     pub fn with_stream_url(mut self, stream_url: String) -> Self {
         self.stream_url = Some(stream_url);
         self
     }
 
-    /// Obtiene el input de audio para songbird
+    #[allow(dead_code)]
+    pub fn with_requested_by(mut self, user_id: UserId) -> Self {
+        self.requested_by = user_id;
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn with_source_type(mut self, source_type: SourceType) -> Self {
+        self.source_type = source_type;
+        self
+    }
+
+    /// Obtiene el input de audio para songbird (Songbird 0.5.0)
     pub async fn get_input(&self) -> Result<Input> {
-        match &self.stream_url {
-            Some(_url) => {
-                // URL directa de stream - usar YoutubeDl con client
-                let client = reqwest::Client::new();
-                let source = songbird::input::YoutubeDl::new(client, self.url.clone());
-                Ok(source.into())
-            }
-            None => {
-                // Usar URL principal (ej: YouTube)
-                let client = reqwest::Client::new();
-                let source = songbird::input::YoutubeDl::new(client, self.url.clone());
-                Ok(source.into())
-            }
+        use tracing::{info, error};
+        
+        info!("🎵 Creando input para: {}", self.title);
+        info!("🔗 URL: {}", self.url);
+        
+        // Songbird 0.5.0: Lazy input creation
+        let client = reqwest::Client::new();
+        
+        // Verificar que la URL sea válida de YouTube
+        if !self.url.contains("youtube.com") && !self.url.contains("youtu.be") {
+            error!("❌ URL no es de YouTube: {}", self.url);
+            anyhow::bail!("URL no compatible: {}", self.url);
         }
+        
+        // Crear YoutubeDl input (lazy)
+        let ytdl = songbird::input::YoutubeDl::new(client, self.url.clone());
+        let input = Input::from(ytdl);
+        
+        info!("✅ Input creado exitosamente para: {}", self.title);
+        Ok(input)
     }
 }
 
 /// Tipos de fuentes de música
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)]
 pub enum SourceType {
     YouTube,
-    Spotify,
-    SoundCloud,
-    Tidal,
     DirectUrl,
 }
 
 impl SourceType {
+    #[allow(dead_code)]
     pub fn as_str(&self) -> &'static str {
         match self {
             SourceType::YouTube => "youtube",
-            SourceType::Spotify => "spotify",
-            SourceType::SoundCloud => "soundcloud",
-            SourceType::Tidal => "tidal",
             SourceType::DirectUrl => "direct",
         }
     }
@@ -152,6 +166,7 @@ impl SourceType {
 
 /// Información de resultado de búsqueda
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct SearchResult {
     pub tracks: Vec<TrackSource>,
     pub total: usize,
@@ -161,43 +176,44 @@ pub struct SearchResult {
 /// Manager para todas las fuentes de música
 pub struct SourceManager {
     youtube: YouTubeClient,
-    spotify: Option<SpotifyClient>,
-    soundcloud: Option<SoundCloudClient>,
-    tidal: Option<TidalClient>,
+    youtube_fast: YouTubeFastClient,
     direct_url: DirectUrlClient,
 }
 
 impl SourceManager {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             youtube: YouTubeClient::new(),
-            spotify: None,
-            soundcloud: None,
-            tidal: None,
+            youtube_fast: YouTubeFastClient::new(),
             direct_url: DirectUrlClient::new(),
         }
     }
 
-    pub fn with_spotify(mut self, client_id: String, client_secret: String) -> Self {
-        self.spotify = Some(SpotifyClient::new(client_id, client_secret));
-        self
-    }
-
-    pub fn with_soundcloud(mut self, client_id: String) -> Self {
-        self.soundcloud = Some(SoundCloudClient::new(client_id));
-        self
-    }
-
-    pub fn with_tidal(mut self, api_key: String) -> Self {
-        self.tidal = Some(TidalClient::new(api_key));
-        self
-    }
-
-    /// Busca en todas las fuentes disponibles
+    /// Busca en todas las fuentes disponibles (prioriza velocidad)
+    #[allow(dead_code)]
     pub async fn search_all(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
         let mut results = Vec::new();
 
-        // YouTube (siempre disponible)
+        // Intentar YouTube Fast primero (más rápido)
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(8),
+            self.youtube_fast.search(query, limit)
+        ).await {
+            Ok(Ok(tracks)) => {
+                results.push(SearchResult {
+                    tracks,
+                    total: limit,
+                    source: SourceType::YouTube,
+                });
+                return Ok(results);
+            }
+            _ => {
+                tracing::warn!("YouTube Fast falló, usando YouTube normal");
+            }
+        }
+
+        // Fallback a YouTube normal si fast falla
         if let Ok(tracks) = self.youtube.search(query, limit).await {
             results.push(SearchResult {
                 tracks,
@@ -206,57 +222,15 @@ impl SourceManager {
             });
         }
 
-        // Spotify (si está configurado)
-        if let Some(ref spotify) = self.spotify {
-            if let Ok(tracks) = spotify.search(query, limit).await {
-                results.push(SearchResult {
-                    tracks,
-                    total: limit,
-                    source: SourceType::Spotify,
-                });
-            }
-        }
-
-        // SoundCloud (si está configurado)
-        if let Some(ref soundcloud) = self.soundcloud {
-            if let Ok(tracks) = soundcloud.search(query, limit).await {
-                results.push(SearchResult {
-                    tracks,
-                    total: limit,
-                    source: SourceType::SoundCloud,
-                });
-            }
-        }
-
         Ok(results)
     }
 
     /// Detecta y obtiene track de URL
+    #[allow(dead_code)]
     pub async fn get_track_from_url(&self, url: &str, _requested_by: UserId) -> Result<TrackSource> {
         // Intentar YouTube primero
         if self.youtube.is_valid_url(url) {
             return self.youtube.get_track(url).await;
-        }
-
-        // Intentar Spotify
-        if let Some(ref spotify) = self.spotify {
-            if spotify.is_valid_url(url) {
-                return spotify.get_track(url).await;
-            }
-        }
-
-        // Intentar SoundCloud
-        if let Some(ref soundcloud) = self.soundcloud {
-            if soundcloud.is_valid_url(url) {
-                return soundcloud.get_track(url).await;
-            }
-        }
-
-        // Intentar Tidal
-        if let Some(ref tidal) = self.tidal {
-            if tidal.is_valid_url(url) {
-                return tidal.get_track(url).await;
-            }
         }
 
         // Por último, intentar URL directa

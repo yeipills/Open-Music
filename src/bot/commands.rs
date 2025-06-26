@@ -5,6 +5,7 @@ use serenity::{
     prelude::Context,
 };
 
+
 /// Registra comandos globales
 pub async fn register_global_commands(ctx: &Context) -> Result<()> {
     let commands = vec![
@@ -22,12 +23,11 @@ pub async fn register_global_commands(ctx: &Context) -> Result<()> {
         clear_command(),
         volume_command(),
         equalizer_command(),
-        effect_command(),
         join_command(),
         leave_command(),
-        lyrics_command(),
         help_command(),
     ];
+
 
     for command in commands {
         ctx.http.create_global_command(&command).await?;
@@ -53,12 +53,11 @@ pub async fn register_guild_commands(ctx: &Context, guild_id: GuildId) -> Result
         clear_command(),
         volume_command(),
         equalizer_command(),
-        effect_command(),
         join_command(),
         leave_command(),
-        lyrics_command(),
         help_command(),
     ];
+
 
     guild_id.set_commands(&ctx.http, commands).await?;
 
@@ -173,15 +172,15 @@ fn clear_command() -> CreateCommand {
     CreateCommand::new("clear")
         .description("Limpia la cola de reproducción")
         .add_option(
-            CreateCommandOption::new(CommandOptionType::String, "filter", "Filtro para limpiar")
-                .add_string_choice("Todo", "all")
+            CreateCommandOption::new(CommandOptionType::String, "target", "Qué limpiar")
+                .add_string_choice("Cola completa", "queue")
                 .add_string_choice("Duplicados", "duplicates")
-                .add_string_choice("Usuario", "user"),
+                .add_string_choice("Canciones de usuario", "user"),
         )
         .add_option(CreateCommandOption::new(
             CommandOptionType::User,
             "user",
-            "Usuario específico (requiere filtro 'user')",
+            "Usuario específico (requiere target 'user')",
         ))
 }
 
@@ -201,43 +200,7 @@ fn volume_command() -> CreateCommand {
         )
 }
 
-fn equalizer_command() -> CreateCommand {
-    CreateCommand::new("equalizer")
-        .description("Configura el ecualizador")
-        .add_option(
-            CreateCommandOption::new(CommandOptionType::String, "preset", "Preset de ecualizador")
-                .add_string_choice("Normal", "normal")
-                .add_string_choice("Bass", "bass")
-                .add_string_choice("Pop", "pop")
-                .add_string_choice("Rock", "rock")
-                .add_string_choice("Jazz", "jazz")
-                .add_string_choice("Classical", "classical")
-                .add_string_choice("Electronic", "electronic")
-                .add_string_choice("Vocal", "vocal")
-                .add_string_choice("Custom", "custom"),
-        )
-        .add_option(CreateCommandOption::new(
-            CommandOptionType::String,
-            "bands",
-            "Valores personalizados (ej: 32:2 64:1 125:0)",
-        ))
-}
 
-fn effect_command() -> CreateCommand {
-    CreateCommand::new("effect")
-        .description("Activa/desactiva efectos de audio")
-        .add_option(
-            CreateCommandOption::new(CommandOptionType::String, "type", "Tipo de efecto")
-                .add_string_choice("Bass Boost", "bassboost")
-                .add_string_choice("8D Audio", "8d")
-                .add_string_choice("Nightcore", "nightcore")
-                .add_string_choice("Vaporwave", "vaporwave")
-                .add_string_choice("Tremolo", "tremolo")
-                .add_string_choice("Karaoke", "karaoke")
-                .add_string_choice("Ninguno", "none")
-                .required(true),
-        )
-}
 
 // Comandos de conexión
 
@@ -251,14 +214,22 @@ fn leave_command() -> CreateCommand {
 
 // Comandos adicionales
 
-fn lyrics_command() -> CreateCommand {
-    CreateCommand::new("lyrics")
-        .description("Busca la letra de una canción")
-        .add_option(CreateCommandOption::new(
-            CommandOptionType::String,
-            "query",
-            "Nombre de la canción o artista",
-        ))
+
+fn equalizer_command() -> CreateCommand {
+    CreateCommand::new("equalizer")
+        .description("Configura el ecualizador con presets")
+        .add_option(
+            CreateCommandOption::new(CommandOptionType::String, "preset", "Preset de ecualizador")
+                .add_string_choice("Plano", "flat")
+                .add_string_choice("Bass", "bass")
+                .add_string_choice("Pop", "pop")
+                .add_string_choice("Rock", "rock")
+                .add_string_choice("Jazz", "jazz")
+                .add_string_choice("Clásica", "classical")
+                .add_string_choice("Electrónica", "electronic")
+                .add_string_choice("Vocal", "vocal")
+                .required(true)
+        )
 }
 
 fn help_command() -> CreateCommand {

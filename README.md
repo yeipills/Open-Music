@@ -11,10 +11,10 @@ High-performance Discord music bot built in Rust with modern architecture and mu
 - ✅ Dependencies updated for 2025 compatibility
 - ✅ Serenity 0.12.4 + Songbird 0.4.6 stable
 - ✅ Complete command system (19 slash commands)
-- ✅ Advanced audio player with effects and equalizer
+- ✅ Advanced audio player with equalizer presets
 - ✅ Interactive UI with buttons and embeds
 - ✅ Advanced LRU cache with TTL
-- ✅ SQLite database with migrations
+- ✅ JSON storage for configurations
 - ✅ Docker optimized for 2025
 
 ### Quick Start
@@ -28,14 +28,14 @@ cargo run              # Ready to use
 ### Core Technologies (2025)
 - **Framework**: Serenity 0.12.4 + Songbird 0.4.6
 - **Audio**: Symphonia + FunDSP + Opus  
-- **Database**: SQLite + sqlx 0.7.4
+- **Storage**: JSON files
 - **Runtime**: Tokio 1.45 async
 - **Container**: Docker Alpine 3.21
 
 ### Módulos Principales
 ```
 src/
-├── audio/           # Player, queue, effects, equalizer
+├── audio/           # Player, queue, equalizer
 ├── bot/             # Commands, handlers, events
 ├── sources/         # YouTube, Spotify, SoundCloud, Tidal
 ├── ui/              # Embeds, buttons, interactions
@@ -54,15 +54,11 @@ src/
 
 ### ✅ Fuentes de Audio  
 - **YouTube**: yt-dlp integration completa
-- **Spotify**: Metadata + fallback a YouTube
-- **SoundCloud**: Stream directo
 - **URLs directas**: Soporte multi-formato
 - **Playlists**: Import automático
 
 ### ✅ Audio Processing
 - **Volumen**: 0-200% con normalización
-- **Ecualizador**: 10 bandas (32Hz-16kHz)
-- **Presets**: Bass, Pop, Rock, Jazz, Classical, Electronic
 - **Efectos**: 8D Audio, Nightcore, Bass Boost, Karaoke
 
 ### ✅ Gestión de Cola
@@ -107,8 +103,7 @@ src/
 /shuffle             - Toggle modo aleatorio
 /loop <mode>         - Repetición (off/track/queue)
 /volume [0-200]      - Control de volumen
-/equalizer <preset>  - EQ con presets (bass, rock, pop, etc.)
-/effect <type>       - Efectos (8D, nightcore, bass boost)
+/equalizer <preset>  - Ecualizador con presets
 /join / /leave       - Conexión a canal de voz
 /nowplaying          - Información de canción actual
 /help [command]      - Ayuda contextual
@@ -165,13 +160,12 @@ MAX_QUEUE_SIZE=100
 DEFAULT_VOLUME=70
 ```
 
-### Base de Datos
-El bot crea automáticamente las tablas necesarias:
-- Server configurations
-- User playlists  
-- Playback history
-- Equalizer presets
-- Usage statistics
+### Almacenamiento
+El bot utiliza archivos JSON para:
+- Configuraciones del servidor
+- Historial de reproducción
+- Presets de ecualizador
+- Estadísticas de uso
 
 ## 🐳 Docker
 

@@ -6,18 +6,28 @@ use serenity::{
         id::{GuildId, UserId},
     },
     prelude::Context,
-    all::Colour,
+};
+use dashmap::DashMap;
+use std::sync::LazyLock;
+
+use crate::{
+    ui::embeds::{colors, create_success_embed, create_error_embed},
+    sources::TrackSource,
+    bot::OpenMusicBot,
 };
 use std::time::Duration;
 use tracing::info;
 
+// Almacén global para sesiones de búsqueda
+static SEARCH_SESSIONS: LazyLock<DashMap<String, Vec<TrackSource>>> = LazyLock::new(DashMap::new);
+
 use crate::{
-    sources::{youtube::YouTubeClient, TrackSource, SourceType},
-    bot::OpenMusicBot,
+    sources::{youtube_fast::YouTubeFastClient, SourceType},
 };
 
 /// Estructura para manejar resultados de búsqueda
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct SearchSession {
     pub query: String,
     pub results: Vec<TrackSource>,
@@ -53,12 +63,11 @@ pub async fn handle_search_command(
 
     info!("🔍 Búsqueda iniciada por {}: {}", command.user.name, query);
 
-    // Buscar en YouTube
-    let youtube_client = YouTubeClient::new();
-    let search_results = youtube_client.search_detailed(query, 10).await?;
-    let filtered_results = youtube_client.filter_results(search_results, query);
+    // Buscar en YouTube (rápido)
+    let youtube_client = YouTubeFastClient::new();
+    let search_results = youtube_client.search_fast(query, 5).await?;
 
-    if filtered_results.is_empty() {
+    if search_results.is_empty() {
         use serenity::builder::EditInteractionResponse;
         command
             .edit_response(
@@ -71,7 +80,7 @@ pub async fn handle_search_command(
     }
 
     // Convertir metadata a TrackSource
-    let track_results: Vec<TrackSource> = filtered_results
+    let track_results: Vec<TrackSource> = search_results
         .into_iter()
         .take(5) // Limitar a 5 resultados para el menú
         .map(|meta| {
@@ -97,6 +106,10 @@ pub async fn handle_search_command(
             track
         })
         .collect();
+
+    // Almacenar resultados en la sesión
+    let session_key = format!("{}_{}", command.user.id, command.guild_id.unwrap_or_default());
+    SEARCH_SESSIONS.insert(session_key, track_results.clone());
 
     // Crear embed y menú de selección
     let embed = create_search_results_embed(query, &track_results);
@@ -138,19 +151,94 @@ pub async fn handle_track_selection(
             .await?;
     }
 
-    info!("✅ Canción seleccionada por {}: índice {}", interaction.user.name, selected_index);
+    // Recuperar resultados de la sesión
+    let session_key = format!("{}_{}", interaction.user.id, guild_id);
+    let track_results = match SEARCH_SESSIONS.get(&session_key) {
+        Some(results) => results.clone(),
+        None => {
+            use serenity::builder::CreateInteractionResponseFollowup;
+            interaction
+                .create_followup(
+                    &ctx.http,
+                    CreateInteractionResponseFollowup::new()
+                        .embed(create_error_embed("Sesión Expirada", "Los resultados de búsqueda han expirado. Realiza una nueva búsqueda."))
+                        .ephemeral(true),
+                )
+                .await?;
+            return Ok(());
+        }
+    };
 
-    // Aquí necesitarías recuperar la información de la búsqueda
-    // Por ahora, crear una respuesta de éxito
-    use serenity::builder::CreateInteractionResponseFollowup;
-    interaction
-        .create_followup(
-            &ctx.http,
-            CreateInteractionResponseFollowup::new()
-                .embed(create_success_embed("Canción Agregada", "La canción ha sido agregada a la cola"))
-                .ephemeral(true),
-        )
-        .await?;
+    // Verificar que el índice sea válido
+    if selected_index >= track_results.len() {
+        use serenity::builder::CreateInteractionResponseFollowup;
+        interaction
+            .create_followup(
+                &ctx.http,
+                CreateInteractionResponseFollowup::new()
+                    .embed(create_error_embed("Error", "Selección inválida"))
+                    .ephemeral(true),
+            )
+            .await?;
+        return Ok(());
+    }
+
+    let selected_track = &track_results[selected_index];
+    info!("✅ Canción seleccionada por {}: {}", interaction.user.name, selected_track.title());
+
+    // Obtener el handler de voz  
+    let handler = bot.get_voice_handler(guild_id)
+        .ok_or_else(|| anyhow::anyhow!("No hay conexión de voz activa"))?;
+
+    // Obtener posición actual en la cola antes de agregar
+    let queue_size = bot.player.get_queue(guild_id).await.unwrap_or_default().len();
+    
+    // Agregar la canción a la cola y reproducir si es necesario
+    match bot.player.play(guild_id, selected_track.clone(), handler).await {
+        Ok(()) => {
+            use serenity::builder::CreateInteractionResponseFollowup;
+            let embed = if queue_size == 0 {
+                create_success_embed(
+                    "🎵 Reproduciendo Ahora",
+                    &format!("**{}**\n{}", selected_track.title(), 
+                        selected_track.artist().as_deref().unwrap_or("Artista desconocido"))
+                )
+            } else {
+                create_success_embed(
+                    "✅ Agregado a la Cola",
+                    &format!("**{}**\n{}\n📍 Posición en cola: **{}**", 
+                        selected_track.title(), 
+                        selected_track.artist().as_deref().unwrap_or("Artista desconocido"),
+                        queue_size + 1)
+                )
+            };
+
+            interaction
+                .create_followup(
+                    &ctx.http,
+                    CreateInteractionResponseFollowup::new()
+                        .embed(embed)
+                        .ephemeral(true),
+                )
+                .await?;
+
+            // El método play ya se encarga de iniciar la reproducción si es necesario
+        }
+        Err(e) => {
+            use serenity::builder::CreateInteractionResponseFollowup;
+            interaction
+                .create_followup(
+                    &ctx.http,
+                    CreateInteractionResponseFollowup::new()
+                        .embed(create_error_embed("Error", &format!("No se pudo agregar la canción: {}", e)))
+                        .ephemeral(true),
+                )
+                .await?;
+        }
+    }
+
+    // Limpiar la sesión después de usar
+    SEARCH_SESSIONS.remove(&session_key);
 
     Ok(())
 }
@@ -159,8 +247,8 @@ pub async fn handle_track_selection(
 fn create_search_results_embed(query: &str, results: &[TrackSource]) -> CreateEmbed {
     let mut embed = CreateEmbed::default()
         .title("🔍 Resultados de Búsqueda")
-        .description(format!("Búsqueda: **{}**\nSelecciona una canción del menú inferior:", query))
-        .color(Colour::from_rgb(0, 123, 255));
+        .description(format!("🎵 **Búsqueda:** `{}`\n📜 Selecciona una canción del menú desplegable:", query))
+        .color(colors::INFO_BLUE);
 
     let mut field_value = String::new();
     for (i, track) in results.iter().enumerate() {
@@ -193,18 +281,13 @@ fn create_search_results_embed(query: &str, results: &[TrackSource]) -> CreateEm
 /// Crea embed cuando no hay resultados
 fn create_no_results_embed(query: &str) -> CreateEmbed {
     CreateEmbed::default()
-        .title("❌ Sin Resultados")
-        .description(format!("No se encontraron canciones para: **{}**\n\nIntenta con:\n• Términos más específicos\n• Nombre del artista\n• Título completo de la canción", query))
-        .color(Colour::from_rgb(255, 69, 0))
+        .title("❌ Sin Resultados de Búsqueda")
+        .description(format!("🔍 **Búsqueda:** `{}`\n\n😔 No se encontraron canciones que coincidan\n\n💡 **Sugerencias:**\n• Verifica la ortografía\n• Usa términos más específicos\n• Incluye el nombre del artista\n• Intenta con el título completo", query))
+        .color(colors::WARNING_ORANGE)
+        .footer(serenity::builder::CreateEmbedFooter::new("🎵 También puedes usar URLs directas de YouTube"))
+        .timestamp(serenity::all::Timestamp::now())
 }
 
-/// Crea embed de éxito
-fn create_success_embed(title: &str, description: &str) -> CreateEmbed {
-    CreateEmbed::default()
-        .title(format!("✅ {}", title))
-        .description(description)
-        .color(Colour::from_rgb(67, 181, 129))
-}
 
 /// Crea menú de selección para tracks
 fn create_track_selection_menu(tracks: &[TrackSource]) -> CreateSelectMenu {
