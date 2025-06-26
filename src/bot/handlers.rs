@@ -1,6 +1,6 @@
 use anyhow::Result;
 use serenity::{
-    builder::{CreateInteractionResponse, CreateInteractionResponseMessage, CreateEmbed},
+    builder::{CreateInteractionResponse, CreateInteractionResponseMessage},
     model::{
         application::{CommandInteraction, ComponentInteraction},
         id::{ChannelId, GuildId, UserId},
@@ -154,10 +154,13 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
     let is_playlist = is_url && crate::sources::youtube::YouTubeClient::is_youtube_playlist(query);
     
     if is_playlist {
-        // Es una playlist de YouTube
+        // Es una playlist de YouTube - usar cliente completo para playlists
         info!("📋 Detectada playlist de YouTube: {}", query);
         
-        let playlist_tracks = youtube_client.get_playlist(query).await?;
+        // Fallback al cliente completo de YouTube para playlists
+        let full_youtube_client = crate::sources::youtube::YouTubeClient::new();
+        let playlist_tracks = full_youtube_client.get_playlist(query).await?;
+        
         if playlist_tracks.is_empty() {
             anyhow::bail!("La playlist está vacía o no se pudo acceder");
         }
@@ -848,7 +851,7 @@ async fn handle_youtube_playlist(
 ) -> Result<()> {
     use serenity::builder::EditInteractionResponse;
     
-    let youtube_client = crate::sources::YouTubeClient::new();
+    let youtube_client = crate::sources::youtube::YouTubeClient::new();
     
     // Verificar si es una URL de playlist válida
     if !playlist_url.contains("list=") {
@@ -862,6 +865,28 @@ async fn handle_youtube_playlist(
         return Ok(());
     }
 
+    // Obtener información básica de la playlist primero
+    info!("🔍 Obteniendo información de playlist: {}", playlist_url);
+    
+    // Mostrar embed inicial de carga
+    let loading_embed = crate::ui::embeds::create_playlist_loading_embed(
+        "Analizando playlist...",
+        0,
+        0,
+        &[],
+        playlist_url
+    );
+    let loading_buttons = crate::ui::buttons::MusicControls::create_playlist_loading_controls(None);
+    
+    command
+        .edit_response(
+            &ctx.http,
+            EditInteractionResponse::new()
+                .embed(loading_embed)
+                .components(loading_buttons)
+        )
+        .await?;
+
     // Obtener tracks de la playlist
     match youtube_client.get_playlist(playlist_url).await {
         Ok(tracks) => {
@@ -871,43 +896,114 @@ async fn handle_youtube_playlist(
                         &ctx.http,
                         EditInteractionResponse::new()
                             .embed(embeds::create_error_embed("Playlist Vacía", "La playlist no contiene canciones válidas"))
+                            .components(vec![])
                     )
                     .await?;
                 return Ok(());
             }
 
-            let track_count = tracks.len();
+            let total_count = tracks.len();
             let handler = bot.get_voice_handler(guild_id)
                 .ok_or_else(|| anyhow::anyhow!("No hay conexión de voz activa"))?;
 
-            // Agregar todas las canciones a la cola
+            info!("📋 Playlist encontrada con {} canciones, iniciando carga progresiva", total_count);
+
+            // Carga progresiva de canciones
             let mut added_count = 0;
-            for track in tracks {
-                if let Ok(_) = bot.player.play(guild_id, track, handler.clone()).await {
-                    added_count += 1;
+            let mut failed_count = 0;
+            let mut loaded_tracks = Vec::new();
+            let mut total_duration = std::time::Duration::new(0, 0);
+
+            for (i, track) in tracks.iter().enumerate() {
+                let current = i + 1;
+                
+                // Actualizar progreso cada 5 canciones o al final
+                if current % 5 == 0 || current == total_count {
+                    let progress_embed = crate::ui::embeds::create_playlist_loading_embed(
+                        "Cargando playlist...",
+                        current,
+                        total_count,
+                        &loaded_tracks,
+                        playlist_url
+                    );
+                    let progress_buttons = crate::ui::buttons::MusicControls::create_playlist_loading_controls(
+                        Some((current, total_count))
+                    );
+                    
+                    if let Err(e) = command
+                        .edit_response(
+                            &ctx.http,
+                            EditInteractionResponse::new()
+                                .embed(progress_embed)
+                                .components(progress_buttons)
+                        )
+                        .await {
+                        warn!("Error actualizando progreso de playlist: {:?}", e);
+                    }
+                }
+
+                // Intentar agregar la canción
+                match bot.player.play(guild_id, track.clone(), handler.clone()).await {
+                    Ok(_) => {
+                        added_count += 1;
+                        loaded_tracks.push(track.title().clone());
+                        if let Some(duration) = track.duration() {
+                            total_duration += duration;
+                        }
+                        
+                        // Limitar historial a últimas 10 canciones
+                        if loaded_tracks.len() > 10 {
+                            loaded_tracks.remove(0);
+                        }
+                    }
+                    Err(e) => {
+                        failed_count += 1;
+                        warn!("Error agregando canción {}: {:?}", track.title(), e);
+                    }
+                }
+
+                // Pequeña pausa para no saturar la API
+                if current % 10 == 0 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                 }
             }
 
-            // Crear respuesta de éxito
-            let embed = embeds::create_success_embed(
-                "🎵 Playlist Agregada",
-                &format!("✅ **{}** de **{}** canciones agregadas a la cola\n🎵 Reproduciendo desde YouTube", 
-                    added_count, track_count)
+            // Crear respuesta final con estadísticas completas
+            let final_embed = crate::ui::embeds::create_playlist_completed_embed(
+                "Playlist de YouTube",
+                added_count,
+                total_count,
+                failed_count,
+                if total_duration.as_secs() > 0 { Some(total_duration) } else { None },
+                playlist_url
             );
+
+            // Botones finales con controles de playlist
+            let final_buttons = if added_count > 0 {
+                crate::ui::buttons::create_playlist_buttons()
+            } else {
+                vec![]
+            };
 
             command
                 .edit_response(
                     &ctx.http,
-                    EditInteractionResponse::new().embed(embed)
+                    EditInteractionResponse::new()
+                        .embed(final_embed)
+                        .components(final_buttons)
                 )
                 .await?;
+
+            info!("✅ Playlist cargada: {}/{} canciones agregadas exitosamente", added_count, total_count);
         }
         Err(e) => {
+            tracing::error!("Error cargando playlist: {:?}", e);
             command
                 .edit_response(
                     &ctx.http,
                     EditInteractionResponse::new()
                         .embed(embeds::create_error_embed("Error", &format!("Error al cargar playlist: {}", e)))
+                        .components(vec![])
                 )
                 .await?;
         }

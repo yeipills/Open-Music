@@ -11,6 +11,7 @@ Cargo.lock
 config.toml
 config.json
 settings.json
+CLAUDE.md
 
 # === DATABASE ===
 *.db

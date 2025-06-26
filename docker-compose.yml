@@ -37,7 +37,6 @@ services:
       - WORKER_THREADS=2
       - MAX_PLAYLIST_SIZE=100
       
-      
       # Features
       - ENABLE_EQUALIZER=true
       - ENABLE_AUTOPLAY=false

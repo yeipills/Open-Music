@@ -25,7 +25,6 @@ echo "  - Volume por defecto: ${DEFAULT_VOLUME:-0.5}"
 echo "  - Cache size: ${CACHE_SIZE:-100}"
 echo "  - Threads: ${WORKER_THREADS:-auto}"
 echo "  - Ecualizador: ${ENABLE_EQUALIZER:-true}"
-echo "  - Efectos: ${ENABLE_EFFECTS:-true}"
 
 # Verificar conectividad de red
 echo "🌐 Verificando conectividad..."

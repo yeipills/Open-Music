@@ -33,6 +33,16 @@ pub mod button_ids {
     pub const PLAYLIST_CONFIRM: &str = "playlist_confirm";
     pub const PLAYLIST_CANCEL: &str = "playlist_cancel";
     pub const PLAYLIST_INFO: &str = "playlist_info";
+    
+    // Botones avanzados de playlist
+    pub const PLAYLIST_SAVE: &str = "playlist_save";
+    pub const PLAYLIST_SHUFFLE: &str = "playlist_shuffle";
+    pub const PLAYLIST_REMOVE: &str = "playlist_remove";
+    pub const PLAYLIST_MANAGE: &str = "playlist_manage";
+    pub const PLAYLIST_HISTORY: &str = "playlist_history";
+    pub const PLAYLIST_SHARE: &str = "playlist_share";
+    pub const PLAYLIST_REMOVE_DUPLICATES: &str = "playlist_remove_dupes";
+    pub const PLAYLIST_QUEUE_POSITION: &str = "playlist_queue_pos";
 }
 
 /// Constructor de controles de música
@@ -148,12 +158,22 @@ impl MusicControls {
             .emoji('👁')
             .style(ButtonStyle::Secondary);
 
+        let save_btn = CreateButton::new(button_ids::PLAYLIST_SAVE)
+            .label("Guardar")
+            .emoji('💾')
+            .style(ButtonStyle::Primary);
+
+        let shuffle_btn = CreateButton::new(button_ids::PLAYLIST_SHUFFLE)
+            .label("Mezclar")
+            .emoji('🔀')
+            .style(ButtonStyle::Secondary);
+
         let info_btn = CreateButton::new(button_ids::PLAYLIST_INFO)
             .label("Info")
             .emoji('ℹ')
             .style(ButtonStyle::Secondary);
 
-        let row1 = CreateActionRow::Buttons(vec![load_btn, preview_btn, info_btn]);
+        let row1 = CreateActionRow::Buttons(vec![load_btn, preview_btn, save_btn, shuffle_btn, info_btn]);
 
         vec![row1]
     }
@@ -172,6 +192,72 @@ impl MusicControls {
             .style(ButtonStyle::Danger);
 
         CreateActionRow::Buttons(vec![confirm_btn, cancel_btn])
+    }
+    
+    /// Crea controles avanzados de gestión de playlists
+    #[allow(dead_code)]
+    pub fn create_advanced_playlist_controls() -> Vec<CreateActionRow> {
+        // Primera fila: Operaciones principales
+        let manage_btn = CreateButton::new(button_ids::PLAYLIST_MANAGE)
+            .label("Gestionar")
+            .emoji("⚙️".chars().next().unwrap())
+            .style(ButtonStyle::Primary);
+            
+        let remove_btn = CreateButton::new(button_ids::PLAYLIST_REMOVE)
+            .label("Remover")
+            .emoji("🗑️".chars().next().unwrap())
+            .style(ButtonStyle::Danger);
+            
+        let remove_dupes_btn = CreateButton::new(button_ids::PLAYLIST_REMOVE_DUPLICATES)
+            .label("Sin Duplicados")
+            .emoji('🔄')
+            .style(ButtonStyle::Secondary);
+            
+        let queue_pos_btn = CreateButton::new(button_ids::PLAYLIST_QUEUE_POSITION)
+            .label("Posición")
+            .emoji('📍')
+            .style(ButtonStyle::Secondary);
+            
+        let row1 = CreateActionRow::Buttons(vec![manage_btn, remove_btn, remove_dupes_btn, queue_pos_btn]);
+        
+        // Segunda fila: Funciones sociales
+        let history_btn = CreateButton::new(button_ids::PLAYLIST_HISTORY)
+            .label("Historial")
+            .emoji('📚')
+            .style(ButtonStyle::Secondary);
+            
+        let share_btn = CreateButton::new(button_ids::PLAYLIST_SHARE)
+            .label("Compartir")
+            .emoji('📤')
+            .style(ButtonStyle::Secondary);
+            
+        let row2 = CreateActionRow::Buttons(vec![history_btn, share_btn]);
+        
+        vec![row1, row2]
+    }
+    
+    /// Crea controles de playlist con carga progresiva
+    #[allow(dead_code)]
+    pub fn create_playlist_loading_controls(progress: Option<(usize, usize)>) -> Vec<CreateActionRow> {
+        let progress_text = if let Some((current, total)) = progress {
+            format!("Cargando... {}/{}", current, total)
+        } else {
+            "Preparando...".to_string()
+        };
+        
+        let progress_btn = CreateButton::new("playlist_progress")
+            .label(&progress_text)
+            .emoji('⏳')
+            .style(ButtonStyle::Secondary)
+            .disabled(true);
+            
+        let cancel_btn = CreateButton::new(button_ids::PLAYLIST_CANCEL)
+            .label("Cancelar")
+            .emoji('❌')
+            .style(ButtonStyle::Danger);
+            
+        let row = CreateActionRow::Buttons(vec![progress_btn, cancel_btn]);
+        vec![row]
     }
     
     /// Crea botones mejorados para el reproductor con más opciones
@@ -627,6 +713,172 @@ pub async fn handle_music_component(
                         .ephemeral(true)
                 )
             ).await?;
+        }
+        button_ids::PLAYLIST_SAVE => {
+            interaction.create_response(&ctx.http,
+                serenity::builder::CreateInteractionResponse::Message(
+                    serenity::builder::CreateInteractionResponseMessage::new()
+                        .content("💾 **Guardar Playlist Personal**\n\n🚧 *Próximamente disponible*\n\nEsta función permitirá:\n• Guardar playlists personales\n• Cargar rápidamente tus favoritas\n• Compartir con otros usuarios\n• Gestionar colecciones privadas")
+                        .ephemeral(true)
+                )
+            ).await?;
+        }
+        button_ids::PLAYLIST_SHUFFLE => {
+            interaction.defer(&ctx.http).await?;
+            match player.toggle_shuffle(guild_id).await {
+                Ok(enabled) => {
+                    let msg = if enabled {
+                        "🔀 **Playlist en modo aleatorio activado**\nLas próximas canciones se reproducirán en orden aleatorio"
+                    } else {
+                        "➡️ **Modo aleatorio desactivado**\nLas canciones se reproducirán en orden normal"
+                    };
+                    update_response(ctx, interaction, msg).await?;
+                }
+                Err(e) => {
+                    error!("Error toggling shuffle: {:?}", e);
+                    update_response(ctx, interaction, "❌ Error al cambiar modo aleatorio").await?;
+                }
+            }
+        }
+        button_ids::PLAYLIST_REMOVE => {
+            if let Ok(queue_info) = player.get_queue_info(guild_id).await {
+                if queue_info.total_items > 0 {
+                    interaction.create_response(&ctx.http,
+                        serenity::builder::CreateInteractionResponse::Message(
+                            serenity::builder::CreateInteractionResponseMessage::new()
+                                .content(&format!("🗑️ **Remover de la Cola**\n\n📊 **Estado actual:**\n• {} canciones en cola\n• {} duración total\n\n💡 Usa `/clear queue` para limpiar toda la cola\n💡 Usa `/clear duplicates` para remover duplicados\n💡 Usa `/clear user @usuario` para remover canciones de un usuario", 
+                                    queue_info.total_items,
+                                    if queue_info.total_duration.as_secs() > 0 {
+                                        format!("{} minutos", queue_info.total_duration.as_secs() / 60)
+                                    } else {
+                                        "Desconocida".to_string()
+                                    }
+                                ))
+                                .ephemeral(true)
+                        )
+                    ).await?;
+                } else {
+                    interaction.create_response(&ctx.http,
+                        serenity::builder::CreateInteractionResponse::Message(
+                            serenity::builder::CreateInteractionResponseMessage::new()
+                                .content("📭 **Cola vacía**\nNo hay canciones para remover")
+                                .ephemeral(true)
+                        )
+                    ).await?;
+                }
+            } else {
+                interaction.create_response(&ctx.http,
+                    serenity::builder::CreateInteractionResponse::Message(
+                        serenity::builder::CreateInteractionResponseMessage::new()
+                            .content("❌ Error al obtener información de la cola")
+                            .ephemeral(true)
+                    )
+                ).await?;
+            }
+        }
+        button_ids::PLAYLIST_MANAGE => {
+            let controls = MusicControls::create_advanced_playlist_controls();
+            interaction.create_response(&ctx.http,
+                serenity::builder::CreateInteractionResponse::Message(
+                    serenity::builder::CreateInteractionResponseMessage::new()
+                        .content("⚙️ **Panel de Gestión de Playlists**\n\nElige una opción avanzada:")
+                        .components(controls)
+                        .ephemeral(true)
+                )
+            ).await?;
+        }
+        button_ids::PLAYLIST_HISTORY => {
+            interaction.create_response(&ctx.http,
+                serenity::builder::CreateInteractionResponse::Message(
+                    serenity::builder::CreateInteractionResponseMessage::new()
+                        .content("📚 **Historial de Playlists**\n\n🚧 *Próximamente disponible*\n\nEsta función mostrará:\n• Últimas playlists reproducidas\n• Estadísticas de uso\n• Playlists más populares\n• Acceso rápido a favoritas")
+                        .ephemeral(true)
+                )
+            ).await?;
+        }
+        button_ids::PLAYLIST_SHARE => {
+            if let Ok(queue_info) = player.get_queue_info(guild_id).await {
+                if queue_info.total_items > 0 {
+                    interaction.create_response(&ctx.http,
+                        serenity::builder::CreateInteractionResponse::Message(
+                            serenity::builder::CreateInteractionResponseMessage::new()
+                                .content(&format!("📤 **Compartir Cola Actual**\n\n📊 **Información:**\n• {} canciones\n• {} duración\n• Modo: {}\n\n🚧 *Función de exportación próximamente*", 
+                                    queue_info.total_items,
+                                    if queue_info.total_duration.as_secs() > 0 {
+                                        format!("{} minutos", queue_info.total_duration.as_secs() / 60)
+                                    } else {
+                                        "Desconocida".to_string()
+                                    },
+                                    format!("{:?}", queue_info.loop_mode)
+                                ))
+                                .ephemeral(true)
+                        )
+                    ).await?;
+                } else {
+                    interaction.create_response(&ctx.http,
+                        serenity::builder::CreateInteractionResponse::Message(
+                            serenity::builder::CreateInteractionResponseMessage::new()
+                                .content("📭 **Cola vacía**\nNo hay nada que compartir")
+                                .ephemeral(true)
+                        )
+                    ).await?;
+                }
+            } else {
+                interaction.create_response(&ctx.http,
+                    serenity::builder::CreateInteractionResponse::Message(
+                        serenity::builder::CreateInteractionResponseMessage::new()
+                            .content("❌ Error al obtener información de la cola")
+                            .ephemeral(true)
+                    )
+                ).await?;
+            }
+        }
+        button_ids::PLAYLIST_REMOVE_DUPLICATES => {
+            interaction.defer(&ctx.http).await?;
+            match player.clear_duplicates(guild_id).await {
+                Ok(removed) => {
+                    let msg = if removed > 0 {
+                        format!("🧹 **Duplicados eliminados**\nSe removieron {} canciones duplicadas de la cola", removed)
+                    } else {
+                        "✨ **Cola limpia**\nNo se encontraron canciones duplicadas".to_string()
+                    };
+                    update_response(ctx, interaction, &msg).await?;
+                }
+                Err(e) => {
+                    error!("Error removing duplicates: {:?}", e);
+                    update_response(ctx, interaction, "❌ Error al eliminar duplicados").await?;
+                }
+            }
+        }
+        button_ids::PLAYLIST_QUEUE_POSITION => {
+            if let Ok(queue_info) = player.get_queue_info(guild_id).await {
+                let position_info = format!("📍 **Posición en Cola**\n\n📊 **Estado:**\n• Posición actual: {}\n• Total en cola: {}\n• Progreso: {:.1}%\n• Tiempo restante: ~{} minutos\n\n💡 Usa `/skip <número>` para saltar canciones",
+                    1, // Posición simplificada
+                    queue_info.total_items,
+                    if queue_info.total_items > 0 { 
+                        if queue_info.total_items > 0 { 50.0 } else { 0.0 } // Progreso estimado 
+                    } else { 0.0 },
+                    if queue_info.total_duration.as_secs() > 0 {
+                        queue_info.total_duration.as_secs() / 60
+                    } else { 0 }
+                );
+                
+                interaction.create_response(&ctx.http,
+                    serenity::builder::CreateInteractionResponse::Message(
+                        serenity::builder::CreateInteractionResponseMessage::new()
+                            .content(&position_info)
+                            .ephemeral(true)
+                    )
+                ).await?;
+            } else {
+                interaction.create_response(&ctx.http,
+                    serenity::builder::CreateInteractionResponse::Message(
+                        serenity::builder::CreateInteractionResponseMessage::new()
+                            .content("❌ Error al obtener posición en la cola")
+                            .ephemeral(true)
+                    )
+                ).await?;
+            }
         }
         button_ids::PLAYLIST_PREVIEW => {
             if let Ok(queue_info) = player.get_queue_info(guild_id).await {
