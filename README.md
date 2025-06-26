@@ -36,7 +36,7 @@ cargo run              # Listo para usar
 src/
 ├── audio/           # Player, queue, equalizer
 ├── bot/             # Commands, handlers, events
-├── sources/         # YouTube, Spotify, SoundCloud, Tidal
+├── sources/         # YouTube y URLs directas
 ├── ui/              # Embeds, buttons, interactions
 ├── cache/           # LRU cache con métricas
 └── config.rs        # Configuración centralizada
@@ -54,11 +54,10 @@ src/
 ### ✅ Fuentes de Audio  
 - **YouTube**: yt-dlp integration completa
 - **URLs directas**: Soporte multi-formato
-- **Playlists**: Import automático
 
 ### ✅ Audio Processing
 - **Volumen**: 0-200% con normalización
-- **Efectos**: 8D Audio, Nightcore, Bass Boost, Karaoke
+- **Ecualizador**: Presets (Bass, Pop, Rock, Jazz, Classical, Electronic, Vocal, Flat)
 
 ### ✅ Gestión de Cola
 - Ver cola con paginación
@@ -88,7 +87,6 @@ src/
 - Modo DJ con permisos especiales
 - Vote skip collaborative
 - Búsqueda avanzada con filtros
-- Lyrics integration
 - Métricas y analytics
 
 ## 🎛️ Comandos Implementados
