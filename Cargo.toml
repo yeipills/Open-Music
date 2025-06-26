@@ -1,11 +1,11 @@
 [package]
 name = "open-music"
 version = "1.0.0"
-edition = "2024"
+edition = "2021"
 authors = ["Your Name <your@email.com>"]
 description = "High-performance Discord music bot"
 license = "MIT"
-rust-version = "1.85"
+rust-version = "1.70"
 
 [profile.release]
 opt-level = 3
@@ -15,24 +15,24 @@ strip = true
 panic = "abort"
 
 [dependencies]
-# Framework Discord - Versiones 2025 CRÍTICAS para audio
+# Framework Discord - Versiones estables para audio
 serenity = { version = "0.12.4", features = ["voice", "gateway", "rustls_backend", "http", "cache", "collector"] }
 songbird = { version = "0.5.0", features = ["builtin-queue", "serenity", "driver", "gateway", "rustls"] }
 
-# Procesamiento de audio - Versiones 2025 ACTUALIZADAS
+# Procesamiento de audio - Versiones actualizadas
 symphonia = { version = "0.5.4", features = ["mp3", "aac", "flac", "wav", "ogg", "isomp4"] }
-audiopus = "0.3.0-rc.0"  # Única versión disponible
+audiopus = "0.3.0-rc.0"  # Versión estable disponible
 fundsp = { version = "0.20", default-features = false }
 rubato = "0.15.0"
 tempfile = "3.20.0"
-# Songbird 0.5.0 NO requiere FFmpeg - usa Symphonia internamente
+# Songbird NO requiere FFmpeg - usa Symphonia internamente
 
-# Async runtime - Versiones 2025 OPTIMIZADAS
+# Async runtime - Versiones optimizadas
 tokio = { version = "1.45", features = ["full"] }
 tokio-util = "0.7.15"
 async-trait = "0.1.88"
 
-# Utilidades - Versiones 2025
+# Utilidades - Versiones estables
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1.0"
@@ -42,24 +42,24 @@ serde_json = "1.0"
 config = "0.15.0"
 dotenvy = "0.15"  # Reemplazo moderno de dotenv
 
-# HTTP y APIs - Versiones 2025 ACTUALIZADAS (Compatible con Songbird 0.5.0)
+# HTTP y APIs - Versiones actualizadas (Compatible con Songbird)
 reqwest = { version = "0.12.20", features = ["json", "rustls-tls", "stream"], default-features = false }
 url = "2.5.4"
 base64 = "0.22.1"
 
 # Base de datos eliminada - Usando JSON simple
 
-# Caché y estructuras de datos - Versiones 2025
+# Caché y estructuras de datos - Versiones estables
 dashmap = "6.1"
 parking_lot = "0.12"
 crossbeam-channel = "0.5"
 
-# UI y formato - Versiones 2025
+# UI y formato - Versiones estables
 chrono = { version = "0.4", features = ["serde"] }
 humantime = "2.2"
 num-format = "0.4"
 
-# Integración con yt-dlp - Versiones 2025 MEJORADAS
+# Integración con yt-dlp - Versiones mejoradas
 async-process = "2.3.1"
 regex = "1.11.1"
 urlencoding = "2.1.3"

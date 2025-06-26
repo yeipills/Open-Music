@@ -1,10 +1,10 @@
 # 🎵 Open Music Bot
 
-High-performance Discord music bot built in Rust with modern architecture and multi-source audio support.
+Bot de música para Discord de alto rendimiento construido en Rust con arquitectura moderna y basado en las versiones más recientes disponibles.
 
 ## 🚀 Project Status
 
-**✅ PROJECT 100% FUNCTIONAL** - Fully operational Discord music bot ready for deployment in 2025.
+**✅ PROYECTO 100% FUNCIONAL** - Bot de música para Discord completamente operativo y listo para despliegue con las últimas tecnologías.
 
 ### Recent Updates (2025)
 - ✅ Updated to Rust 2024 Edition
@@ -17,10 +17,10 @@ High-performance Discord music bot built in Rust with modern architecture and mu
 - ✅ JSON storage for configurations
 - ✅ Docker optimized for 2025
 
-### Quick Start
+### Inicio Rápido
 ```bash
-cargo build --release  # Compiles successfully
-cargo run              # Ready to use
+cargo build --release  # Compila exitosamente
+cargo run              # Listo para usar
 ```
 
 ## 🏗️ Architecture

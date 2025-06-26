@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is Open Music Bot - a high-performance Discord music bot built in Rust with modern architecture. The bot supports multiple audio sources (YouTube, Spotify, SoundCloud, direct URLs), advanced audio processing (equalizer, effects), and a robust queue system.
+Este es Open Music Bot - un bot de música para Discord de alto rendimiento construido en Rust con arquitectura moderna. El bot soporta YouTube, URLs directas, procesamiento de audio avanzado (ecualizador), y un sistema de cola robusto.
 
 ## Architecture
 
@@ -17,23 +17,23 @@ This is Open Music Bot - a high-performance Discord music bot built in Rust with
 - **Storage** (`src/storage.rs`): JSON-based persistent storage for configurations and settings
 - **UI Components** (`src/ui/`): Discord embed and button builders
 
-### Key Technologies
+### Tecnologías Clave
 
-- **Serenity 0.12.4** + **Songbird 0.5.0** for Discord integration and voice
-- **Symphonia** for audio decoding (replaces FFmpeg dependency)
-- **yt-dlp** for YouTube audio extraction
-- **Tokio** async runtime with optimized configuration
-- **DashMap** for concurrent data structures
+- **Serenity** + **Songbird** para integración con Discord y voz
+- **Symphonia** para decodificación de audio (reemplaza dependencia de FFmpeg)
+- **yt-dlp** para extracción de audio de YouTube
+- **Tokio** runtime async con configuración optimizada
+- **DashMap** para estructuras de datos concurrentes
 
-## Development Commands
+## Comandos de Desarrollo
 
-### Build and Run
+### Construcción y Ejecución
 ```bash
 cargo build --release    # Production build with optimizations
 cargo run                # Development run
 ```
 
-### Testing and Quality
+### Pruebas y Calidad
 ```bash
 cargo test               # Run unit tests
 cargo test --test integration  # Run integration tests
@@ -41,84 +41,84 @@ cargo clippy            # Linting
 cargo fmt               # Code formatting
 ```
 
-### Docker Development
+### Desarrollo con Docker
 ```bash
 docker-compose up -d     # Run in container
 docker-compose logs -f   # View logs
 ```
 
-## Configuration
+## Configuración
 
-### Environment Setup
+### Configuración del Entorno
 Copy `.env.example` to `.env` and configure:
 - `DISCORD_TOKEN`: Bot token (required)
 - `APPLICATION_ID`: Discord application ID (required)
 - `GUILD_ID`: Guild ID for development (optional)
 
-### Audio Configuration
+### Configuración de Audio
 - `OPUS_BITRATE`: Audio quality (default: 128000)
 - `DEFAULT_VOLUME`: Initial volume (default: 0.5)
 - `MAX_QUEUE_SIZE`: Queue limit (default: 1000)
 
-## Code Patterns
+## Patrones de Código
 
-### Error Handling
+### Manejo de Errores
 - Use `anyhow::Result<T>` for functions that can fail
 - Log errors with appropriate severity levels
 - Return descriptive error messages to users
 
-### Async Operations
+### Operaciones Asíncronas
 - All Discord and audio operations are async
 - Use `tokio::spawn` for background tasks
 - Proper mutex handling for shared state
 
-### Voice Connection Management
+### Gestión de Conexiones de Voz
 - Voice handlers stored in `DashMap<GuildId, Arc<Mutex<Call>>>`
 - Auto-disconnect when bot is alone in channel
 - Graceful cleanup on disconnection
 
-### Audio Processing
+### Procesamiento de Audio
 - Symphonia for decoding (no FFmpeg dependency)
 - Opus encoding for Discord voice
 - Basic effects applied in real-time pipeline
 
-## Important Implementation Details
+## Detalles Importantes de Implementación
 
-### Command Registration
+### Registro de Comandos
 - Commands can be registered globally or per-guild
 - Guild-specific registration for development (faster updates)
 - Global registration for production deployment
 
-### Queue System
+### Sistema de Cola
 - Supports shuffle, repeat modes, and seeking
 - Concurrent-safe operations with proper locking
 - Automatic cleanup of expired entries
 
-### Cache Strategy
+### Estrategia de Cache
 - LRU cache for metadata and audio data
 - TTL-based expiration for memory management
 - Separate caches for different data types
 
-### Source Integration
+### Integración de Fuentes
 - YouTube: Primary source using yt-dlp
 - Direct URLs: Support for various audio formats
 
-## Performance Considerations
+## Consideraciones de Rendimiento
 
 - Rust 2024 edition with aggressive optimizations
 - Memory usage typically 50-100MB runtime
 - Supports 100+ concurrent guilds
 - Audio latency < 100ms typical
 
-## Troubleshooting
+## Resolución de Problemas
 
-### Common Issues
+### Problemas Comunes
 - Missing system dependencies: `cmake`, `libopus-dev`, `libssl-dev`
 - yt-dlp outdated: Update to latest version
 - Discord permissions: Bot needs Voice permissions
 - Compilation: Requires Rust 1.85+
 
-### Debugging
+### Depuración
 - Set `RUST_LOG=debug` for verbose logging
 - Check Docker health checks for container issues
 - Monitor memory usage with built-in metrics
