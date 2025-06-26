@@ -1,6 +1,6 @@
-# CLAUDE.md
+# DEVELOPMENT.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides development guidance when working with code in this repository.
 
 ## Project Overview
 
@@ -12,7 +12,7 @@ Este es Open Music Bot - un bot de música para Discord de alto rendimiento cons
 
 - **Audio System** (`src/audio/`): Audio player, queue management, effects processing, and equalizer
 - **Bot Framework** (`src/bot/`): Discord commands, event handlers, and voice connection management
-- **Source Integration** (`src/sources/`): YouTube, Spotify, SoundCloud, and direct URL handlers
+- **Source Integration** (`src/sources/`): YouTube and direct URL handlers
 - **Cache System** (`src/cache/`): LRU cache with TTL for metadata and audio data
 - **Storage** (`src/storage.rs`): JSON-based persistent storage for configurations and settings
 - **UI Components** (`src/ui/`): Discord embed and button builders
@@ -80,7 +80,7 @@ Copy `.env.example` to `.env` and configure:
 ### Procesamiento de Audio
 - Symphonia for decoding (no FFmpeg dependency)
 - Opus encoding for Discord voice
-- Basic effects applied in real-time pipeline
+- Equalizer presets applied in real-time pipeline
 
 ## Detalles Importantes de Implementación
 
@@ -105,7 +105,7 @@ Copy `.env.example` to `.env` and configure:
 
 ## Consideraciones de Rendimiento
 
-- Rust 2024 edition with aggressive optimizations
+- Rust 2021 edition with aggressive optimizations
 - Memory usage typically 50-100MB runtime
 - Supports 100+ concurrent guilds
 - Audio latency < 100ms typical
@@ -116,7 +116,7 @@ Copy `.env.example` to `.env` and configure:
 - Missing system dependencies: `cmake`, `libopus-dev`, `libssl-dev`
 - yt-dlp outdated: Update to latest version
 - Discord permissions: Bot needs Voice permissions
-- Compilation: Requires Rust 1.85+
+- Compilation: Requires Rust 1.70+
 
 ### Depuración
 - Set `RUST_LOG=debug` for verbose logging
