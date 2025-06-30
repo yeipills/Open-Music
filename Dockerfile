@@ -67,6 +67,7 @@ ENV RUST_LOG=info \
     CACHE_DIR=/app/cache \
     DATA_DIR=/app/data
 
+EXPOSE 8080
 # Health check básico
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD pgrep open-music > /dev/null || exit 1
