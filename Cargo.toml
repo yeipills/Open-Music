@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Your Name <your@email.com>"]
 description = "High-performance Discord music bot"
 license = "MIT"
-rust-version = "1.85"
+rust-version = "1.82"
 
 [profile.release]
 opt-level = 3

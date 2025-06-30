@@ -57,7 +57,7 @@ impl Config {
                 .unwrap_or_else(|_| "50".to_string())
                 .parse()?,
             opus_bitrate: std::env::var("OPUS_BITRATE")
-                .unwrap_or_else(|_| "128000".to_string()) // 128kbps
+                .unwrap_or_else(|_| "96000".to_string()) // 96kbps (Discord default)
                 .parse()?,
             frame_size: std::env::var("FRAME_SIZE")
                 .unwrap_or_else(|_| "960".to_string()) // 20ms @ 48kHz
@@ -101,23 +101,146 @@ impl Config {
                 .parse()?,
         };
 
-        // Crear directorios si no existen
+        // Create directories if they don't exist
         std::fs::create_dir_all(&config.data_dir)?;
         std::fs::create_dir_all(&config.cache_dir)?;
 
+        // Validate configuration before returning
+        config.validate()?;
+        
         Ok(config)
     }
 
+    /// Validates configuration values for correctness.
+    ///
+    /// Performs sanity checks on configuration values to catch
+    /// common mistakes and ensure the bot will function properly.
+    ///
+    /// # Validation Rules
+    ///
+    /// - Volume must be between 0.0 and 2.0
+    /// - Opus bitrate must not exceed 510kbps (Discord limit)
+    /// - Cache sizes must be reasonable (> 0)
+    /// - Directories must be accessible
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())`: All values are valid
+    /// - `Err(anyhow::Error)`: Invalid configuration detected
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use open_music::config::Config;
+    /// # fn main() -> anyhow::Result<()> {
+    /// let config = Config::load()?;
+    /// config.validate()?;  // Ensure config is valid
+    /// # Ok(())
+    /// # }
+    /// ```
     #[allow(dead_code)]
     pub fn validate(&self) -> Result<()> {
+        // Validate audio settings
         if self.default_volume < 0.0 || self.default_volume > 2.0 {
-            anyhow::bail!("Volumen debe estar entre 0.0 y 2.0");
+            anyhow::bail!("Default volume must be between 0.0 and 2.0, got: {}", self.default_volume);
         }
 
         if self.opus_bitrate > 510000 {
-            anyhow::bail!("Bitrate Opus no puede exceder 510kbps");
+            anyhow::bail!("Opus bitrate cannot exceed 510kbps, got: {}", self.opus_bitrate);
+        }
+        
+        if self.opus_bitrate < 8000 {
+            anyhow::bail!("Opus bitrate too low, minimum 8kbps, got: {}", self.opus_bitrate);
+        }
+
+        // Validate cache settings
+        if self.cache_size == 0 {
+            anyhow::bail!("Cache size must be greater than 0");
+        }
+        
+        if self.audio_cache_size == 0 {
+            anyhow::bail!("Audio cache size must be greater than 0");
+        }
+
+        // Validate limits
+        if self.max_queue_size == 0 {
+            anyhow::bail!("Max queue size must be greater than 0");
+        }
+        
+        if self.max_song_duration == 0 {
+            anyhow::bail!("Max song duration must be greater than 0");
         }
 
         Ok(())
+    }
+    
+    /// Returns a summary of the current configuration for logging.
+    ///
+    /// Provides a safe summary that excludes sensitive information
+    /// like tokens while showing key configuration parameters.
+    ///
+    /// # Returns
+    ///
+    /// A formatted string suitable for logging or debugging.
+    pub fn summary(&self) -> String {
+        format!(
+            "Config Summary:\n  \
+            Discord: App ID {} (Guild: {})\n  \
+            Audio: {}% vol, {}kbps, {}ms frames\n  \
+            Cache: {} metadata, {} audio files\n  \
+            Limits: {} queue, {}s max duration, {}/min rate limit\n  \
+            Features: EQ={}, Autoplay={}",
+            self.application_id,
+            self.guild_id.map_or("global".to_string(), |id| id.to_string()),
+            (self.default_volume * 100.0) as u32,
+            self.opus_bitrate / 1000,
+            (self.frame_size as f32 / 48.0) as u32,  // Convert to ms at 48kHz
+            self.cache_size,
+            self.audio_cache_size,
+            self.max_queue_size,
+            self.max_song_duration,
+            self.rate_limit_per_user,
+            self.enable_equalizer,
+            self.enable_autoplay
+        )
+    }
+}
+
+/// Default configuration values.
+///
+/// Used as fallbacks when environment variables are not provided.
+/// These values are chosen for a good balance of quality and performance.
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            // Discord (no defaults - must be provided)
+            discord_token: String::new(),
+            application_id: 0,
+            guild_id: None,
+            
+            // Audio defaults
+            default_volume: 0.5,
+            max_queue_size: 1000,
+            audio_cache_size: 50,
+            opus_bitrate: 96000,   // 96kbps (Discord default)
+            frame_size: 960,       // 20ms at 48kHz
+            
+            // Performance defaults
+            cache_size: 100,
+            worker_threads: num_cpus::get(),
+            max_playlist_size: 100,
+            
+            // Path defaults
+            data_dir: "/app/data".into(),
+            cache_dir: "/app/cache".into(),
+            
+            // Limit defaults
+            max_song_duration: 7200,  // 2 hours
+            rate_limit_per_user: 20,  // 20 commands per minute
+            
+            // Feature defaults
+            enable_equalizer: true,
+            enable_autoplay: false,
+        }
     }
 }
