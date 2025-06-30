@@ -137,8 +137,9 @@ impl TrackSource {
         // 2. Validar URL de YouTube más robustamente
         self.validate_youtube_url()?;
         
-        // 3. Verificar que el video sea accesible
-        self.verify_video_accessibility().await?;
+        // 3. Verificar que el video sea accesible (comentado temporalmente debido a bloqueos de YouTube)
+        // self.verify_video_accessibility().await?;
+        info!("⚠️ Saltando verificación de accesibilidad por bloqueos de YouTube - los errores se manejarán en reproducción");
         
         // 4. Crear input con timeout
         let client = reqwest::Client::builder()
@@ -248,6 +249,9 @@ impl TrackSource {
                 "--no-warnings", 
                 "--quiet",
                 "--get-title",
+                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "--extractor-args", "youtube:player_client=web",
+                "--no-check-certificate",
                 &self.url
             ])
             .output();
