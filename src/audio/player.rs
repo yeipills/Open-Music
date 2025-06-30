@@ -142,8 +142,15 @@ impl AudioPlayer {
         };
         
         // Registrar eventos
-        track_handle.add_event(Event::Track(TrackEvent::End), end_handler).expect("Failed to add end event");
-        track_handle.add_event(Event::Track(TrackEvent::Error), error_handler).expect("Failed to add error event");
+        match track_handle.add_event(Event::Track(TrackEvent::End), end_handler) {
+            Ok(_) => info!("✅ Event handler END registrado para guild {}", guild_id),
+            Err(e) => tracing::error!("❌ Error registrando event handler END: {:?}", e),
+        }
+        
+        match track_handle.add_event(Event::Track(TrackEvent::Error), error_handler) {
+            Ok(_) => info!("✅ Event handler ERROR registrado para guild {}", guild_id),
+            Err(e) => tracing::error!("❌ Error registrando event handler ERROR: {:?}", e),
+        }
         
         info!("🎧 Eventos de track configurados para guild {}", guild_id);
     }
@@ -446,6 +453,7 @@ pub struct TrackEndHandler {
 #[async_trait::async_trait]
 impl SongbirdEventHandler for TrackEndHandler {
     async fn act(&self, _ctx: &EventContext<'_>) -> Option<Event> {
+        tracing::warn!("🎵 *** EVENT HANDLER: TrackEndHandler llamado para guild {} ***", self.guild_id);
         info!("🎵 Track terminado en guild {}, reproduciendo siguiente...", self.guild_id);
         
         // Remover track actual
@@ -468,6 +476,7 @@ pub struct TrackErrorHandler {
 #[async_trait::async_trait]
 impl SongbirdEventHandler for TrackErrorHandler {
     async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
+        tracing::warn!("❌ *** EVENT HANDLER: TrackErrorHandler llamado para guild {} ***", self.guild_id);
         tracing::error!("❌ Error en track para guild {}: {:?}", self.guild_id, ctx);
         info!("🔄 Intentando reproducir siguiente canción tras error...");
         
