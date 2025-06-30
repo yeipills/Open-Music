@@ -65,3 +65,4 @@
 pub mod effects;
 pub mod player;
 pub mod queue;
+pub mod robust_queue;

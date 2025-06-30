@@ -121,28 +121,167 @@ impl TrackSource {
         self
     }
 
-    /// Obtiene el input de audio para songbird (Songbird 0.5.0)
+    /// Obtiene el input de audio para songbird (Songbird 0.5.0) con validación mejorada
     pub async fn get_input(&self) -> Result<Input> {
-        use tracing::{info, error};
+        use tracing::{info, error, warn};
+        use std::process::Command;
+        use std::time::Duration;
+        use tokio::time::timeout;
         
         info!("🎵 Creando input para: {}", self.title);
         info!("🔗 URL: {}", self.url);
         
-        // Songbird 0.5.0: Lazy input creation
-        let client = reqwest::Client::new();
+        // 1. Verificar que yt-dlp esté disponible
+        self.verify_ytdlp_availability().await?;
         
-        // Verificar que la URL sea válida de YouTube
-        if !self.url.contains("youtube.com") && !self.url.contains("youtu.be") {
-            error!("❌ URL no es de YouTube: {}", self.url);
-            anyhow::bail!("URL no compatible: {}", self.url);
-        }
+        // 2. Validar URL de YouTube más robustamente
+        self.validate_youtube_url()?;
         
-        // Crear YoutubeDl input (lazy)
-        let ytdl = songbird::input::YoutubeDl::new(client, self.url.clone());
-        let input = Input::from(ytdl);
+        // 3. Verificar que el video sea accesible
+        self.verify_video_accessibility().await?;
+        
+        // 4. Crear input con timeout
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()?;
+        
+        info!("🔧 Creando YoutubeDl input...");
+        
+        // Crear YoutubeDl input con timeout
+        let ytdl_future = async {
+            let ytdl = songbird::input::YoutubeDl::new(client, self.url.clone());
+            Input::from(ytdl)
+        };
+        
+        let input = match timeout(Duration::from_secs(45), ytdl_future).await {
+            Ok(input) => input,
+            Err(_) => {
+                error!("❌ Timeout creando input para: {}", self.url);
+                anyhow::bail!("Timeout al crear input de audio");
+            }
+        };
         
         info!("✅ Input creado exitosamente para: {}", self.title);
         Ok(input)
+    }
+    
+    /// Verifica que yt-dlp esté disponible y funcional
+    async fn verify_ytdlp_availability(&self) -> Result<()> {
+        use tracing::{info, error};
+        
+        // Verificar que yt-dlp existe
+        let output = tokio::process::Command::new("which")
+            .arg("yt-dlp")
+            .output()
+            .await;
+            
+        match output {
+            Ok(output) if output.status.success() => {
+                info!("✅ yt-dlp encontrado");
+            }
+            _ => {
+                error!("❌ yt-dlp no está instalado o no está en PATH");
+                anyhow::bail!("yt-dlp no está disponible");
+            }
+        }
+        
+        // Verificar que yt-dlp puede ejecutarse
+        let version_output = tokio::process::Command::new("yt-dlp")
+            .arg("--version")
+            .output()
+            .await;
+            
+        match version_output {
+            Ok(output) if output.status.success() => {
+                let version = String::from_utf8_lossy(&output.stdout);
+                info!("✅ yt-dlp versión: {}", version.trim());
+            }
+            _ => {
+                error!("❌ Error ejecutando yt-dlp");
+                anyhow::bail!("yt-dlp no puede ejecutarse correctamente");
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Valida que la URL sea de YouTube y esté bien formada
+    fn validate_youtube_url(&self) -> Result<()> {
+        use url::Url;
+        use tracing::{info, error};
+        
+        // Parsear URL
+        let parsed_url = Url::parse(&self.url)
+            .map_err(|_| anyhow::anyhow!("URL mal formada: {}", self.url))?;
+        
+        // Verificar dominio
+        let host = parsed_url.host_str()
+            .ok_or_else(|| anyhow::anyhow!("No se pudo extraer host de la URL"))?;
+        
+        let is_youtube = host == "www.youtube.com" 
+            || host == "youtube.com" 
+            || host == "youtu.be"
+            || host == "m.youtube.com"
+            || host == "music.youtube.com";
+        
+        if !is_youtube {
+            error!("❌ URL no es de YouTube: {}", self.url);
+            anyhow::bail!("URL no es de YouTube: {}", host);
+        }
+        
+        info!("✅ URL de YouTube válida: {}", host);
+        Ok(())
+    }
+    
+    /// Verifica que el video sea accesible antes de crear el input
+    async fn verify_video_accessibility(&self) -> Result<()> {
+        use tracing::{info, warn, error};
+        use std::time::Duration;
+        use tokio::time::timeout;
+        
+        info!("🔍 Verificando accesibilidad del video...");
+        
+        // Usar yt-dlp para verificar que el video existe y es accesible
+        let check_future = tokio::process::Command::new("yt-dlp")
+            .args(&[
+                "--simulate",
+                "--no-warnings", 
+                "--quiet",
+                "--get-title",
+                &self.url
+            ])
+            .output();
+        
+        let output = match timeout(Duration::from_secs(15), check_future).await {
+            Ok(Ok(output)) => output,
+            Ok(Err(e)) => {
+                error!("❌ Error ejecutando yt-dlp para verificación: {:?}", e);
+                anyhow::bail!("Error verificando video: {:?}", e);
+            }
+            Err(_) => {
+                warn!("⚠️ Timeout verificando video, continuando...");
+                return Ok(()); // Continuar si hay timeout en verificación
+            }
+        };
+        
+        if output.status.success() {
+            let title = String::from_utf8_lossy(&output.stdout);
+            info!("✅ Video accesible: {}", title.trim());
+        } else {
+            let error_msg = String::from_utf8_lossy(&output.stderr);
+            error!("❌ Video no accesible: {}", error_msg.trim());
+            
+            // Verificar errores específicos
+            if error_msg.contains("Video unavailable") || error_msg.contains("Private video") {
+                anyhow::bail!("Video no disponible o privado");
+            } else if error_msg.contains("Age-restricted") {
+                anyhow::bail!("Video restringido por edad");
+            } else {
+                anyhow::bail!("Error accediendo al video: {}", error_msg.trim());
+            }
+        }
+        
+        Ok(())
     }
 }
 

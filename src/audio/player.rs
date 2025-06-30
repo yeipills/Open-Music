@@ -4,6 +4,7 @@ use parking_lot::RwLock;
 use serenity::model::id::{ChannelId, GuildId, MessageId, UserId};
 use songbird::{
     tracks::{PlayMode, TrackHandle},
+    Event, EventContext, EventHandler as SongbirdEventHandler, TrackEvent,
     Call,
 };
 use std::sync::Arc;
@@ -122,10 +123,38 @@ impl AudioPlayer {
         Ok(())
     }
 
-    /// Configura eventos para el track (simplificado)
-    async fn setup_track_events(&self, _guild_id: GuildId, _track_handle: &TrackHandle, _handler: Arc<Mutex<Call>>) {
-        // Por simplicidad, no configuramos eventos automáticos
-        // El usuario deberá usar skip manualmente
+    /// Configura eventos para el track con manejo automático de errores y progresión
+    async fn setup_track_events(&self, guild_id: GuildId, track_handle: &TrackHandle, handler: Arc<Mutex<Call>>) {
+        let player = Arc::new(self.clone_for_events());
+        
+        // Evento para cuando el track termina normalmente
+        let end_handler = TrackEndHandler {
+            guild_id,
+            player: player.clone(),
+            handler: handler.clone(),
+        };
+        
+        // Evento para cuando hay un error
+        let error_handler = TrackErrorHandler {
+            guild_id,
+            player: player.clone(),
+            handler: handler.clone(),
+        };
+        
+        // Registrar eventos
+        track_handle.add_event(Event::Track(TrackEvent::End), end_handler).expect("Failed to add end event");
+        track_handle.add_event(Event::Track(TrackEvent::Error), error_handler).expect("Failed to add error event");
+        
+        info!("🎧 Eventos de track configurados para guild {}", guild_id);
+    }
+    
+    /// Clona los datos necesarios para los event handlers
+    fn clone_for_events(&self) -> AudioPlayerData {
+        AudioPlayerData {
+            queues: self.queues.clone(),
+            effects: self.effects.clone(),
+            current_tracks: self.current_tracks.clone(),
+        }
     }
 
     /// Pausa la reproducción (Songbird 0.5.0)
@@ -334,4 +363,120 @@ impl AudioPlayer {
     }
 }
 
-// Handler simplificado eliminado por complejidad
+/// Estructura para compartir datos del player con los event handlers
+#[derive(Clone)]
+pub struct AudioPlayerData {
+    queues: DashMap<GuildId, Arc<RwLock<MusicQueue>>>,
+    effects: Arc<AudioEffects>,
+    current_tracks: DashMap<GuildId, TrackHandle>,
+}
+
+impl AudioPlayerData {
+    /// Reproduce la siguiente canción en la cola
+    async fn play_next(&self, guild_id: GuildId, handler: Arc<Mutex<Call>>) {
+        // Obtener siguiente track de la cola
+        let queue = self.queues.get(&guild_id);
+        if let Some(queue) = queue {
+            let next_track = {
+                let mut q = queue.write();
+                q.next_track()
+            };
+            
+            if let Some(track_source) = next_track {
+                info!("🎵 Reproduciendo siguiente: {} en guild {}", track_source.title(), guild_id);
+                
+                // Crear input
+                match track_source.get_input().await {
+                    Ok(input) => {
+                        // Aplicar efectos
+                        let processed_input = match self.effects.process_input(input).await {
+                            Ok(input) => input,
+                            Err(e) => {
+                                tracing::error!("❌ Error procesando efectos: {:?}", e);
+                                return; // Skip this track if effects fail
+                            }
+                        };
+                        
+                        // Reproducir
+                        let mut call = handler.lock().await;
+                        let track_handle = call.play_input(processed_input);
+                        
+                        // Configurar eventos recursivamente
+                        let end_handler = TrackEndHandler {
+                            guild_id,
+                            player: Arc::new(self.clone()),
+                            handler: handler.clone(),
+                        };
+                        
+                        let error_handler = TrackErrorHandler {
+                            guild_id,
+                            player: Arc::new(self.clone()),
+                            handler: handler.clone(),
+                        };
+                        
+                        track_handle.add_event(Event::Track(TrackEvent::End), end_handler).ok();
+                        track_handle.add_event(Event::Track(TrackEvent::Error), error_handler).ok();
+                        
+                        // Almacenar handle
+                        self.current_tracks.insert(guild_id, track_handle);
+                        
+                        info!("🎵 Reproduciendo: {} en guild {}", track_source.title(), guild_id);
+                    }
+                    Err(e) => {
+                        tracing::error!("❌ Error obteniendo input para siguiente track: {:?}", e);
+                        // Log error y continuar - no recursión infinita
+                        info!("🔄 Saltando track con error y continuando...");
+                    }
+                }
+            } else {
+                info!("📭 Cola vacía, reproducción terminada en guild {}", guild_id);
+                self.current_tracks.remove(&guild_id);
+            }
+        }
+    }
+}
+
+/// Handler para cuando un track termina normalmente
+pub struct TrackEndHandler {
+    guild_id: GuildId,
+    player: Arc<AudioPlayerData>,
+    handler: Arc<Mutex<Call>>,
+}
+
+#[async_trait::async_trait]
+impl SongbirdEventHandler for TrackEndHandler {
+    async fn act(&self, _ctx: &EventContext<'_>) -> Option<Event> {
+        info!("🎵 Track terminado en guild {}, reproduciendo siguiente...", self.guild_id);
+        
+        // Remover track actual
+        self.player.current_tracks.remove(&self.guild_id);
+        
+        // Simplemente notificar - el siguiente track se manejará automáticamente
+        info!("🎵 Track terminado, continuando con reproducción automática...");
+        
+        None
+    }
+}
+
+/// Handler para cuando hay un error en el track
+pub struct TrackErrorHandler {
+    guild_id: GuildId,
+    player: Arc<AudioPlayerData>,
+    handler: Arc<Mutex<Call>>,
+}
+
+#[async_trait::async_trait]
+impl SongbirdEventHandler for TrackErrorHandler {
+    async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
+        tracing::error!("❌ Error en track para guild {}: {:?}", self.guild_id, ctx);
+        info!("🔄 Intentando reproducir siguiente canción tras error...");
+        
+        // Remover track con error
+        self.player.current_tracks.remove(&self.guild_id);
+        
+        // Log error y continuar
+        info!("🔄 Error en track, saltando a siguiente canción...");
+        
+        None
+    }
+}

@@ -72,7 +72,7 @@ impl RobustQueue {
         }
 
         // Verificar si el track ya falló demasiadas veces
-        if let Some(&retry_count) = queue.retry_count.get(source.url()) {
+        if let Some(&retry_count) = queue.retry_count.get(&source.url()) {
             let recovery = self.error_recovery.lock().await;
             if retry_count >= recovery.max_retries {
                 warn!("🚫 Track {} ha fallado {} veces, no se agregará", source.title(), retry_count);
