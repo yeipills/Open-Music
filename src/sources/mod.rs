@@ -177,8 +177,8 @@ impl TrackSource {
             .timeout(Duration::from_secs(30))
             .build()?;
         
-        // Configurar variables de entorno para yt-dlp
-        std::env::set_var("YTDLP_OPTS", "--user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' --extractor-args 'youtube:player_client=android'");
+        // Configurar variables de entorno para yt-dlp con mejores parámetros
+        std::env::set_var("YTDLP_OPTS", "--user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' --extractor-args 'youtube:player_client=android,web' --no-check-certificate --socket-timeout 30 --retries 3");
         
         let ytdl_future = async {
             let ytdl = songbird::input::YoutubeDl::new(client, self.url.clone());
@@ -293,8 +293,8 @@ impl TrackSource {
                 "--no-warnings", 
                 "--quiet",
                 "--get-title",
-                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "--extractor-args", "youtube:player_client=web",
+                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "--extractor-args", "youtube:player_client=android,web",
                 "--no-check-certificate",
                 &self.url
             ])

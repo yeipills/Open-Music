@@ -111,7 +111,7 @@ impl YouTubeClient {
                 "--dump-json", 
                 "--no-warnings",
                 "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "--extractor-args", "youtube:player_client=android",
+                "--extractor-args", "youtube:player_client=android,web",
                 url
             ])
             .output()
@@ -145,7 +145,7 @@ impl YouTubeClient {
                 "--get-url",
                 "--no-warnings",
                 "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "--extractor-args", "youtube:player_client=android",
+                "--extractor-args", "youtube:player_client=android,web",
                 url,
             ])
             .output()
@@ -302,7 +302,7 @@ impl YouTubeClient {
                 "--retries", "1",
                 "--no-cache-dir",
                 "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "--extractor-args", "youtube:player_client=android",
+                "--extractor-args", "youtube:player_client=android,web",
                 &search_query,
             ])
             .output()

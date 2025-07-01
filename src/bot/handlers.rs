@@ -147,9 +147,7 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
             .await?;
     }
 
-    // Buscar y agregar a la cola
-    let youtube_client = YouTubeFastClient::new();
-    
+    // Buscar y agregar a la cola con sistema de fallback completo
     let is_url = query.starts_with("http");
     let is_playlist = is_url && crate::sources::youtube::YouTubeClient::is_youtube_playlist(query);
     
@@ -206,58 +204,88 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
         
     } 
     
-    // Manejar canciones individuales (URL o búsqueda)
+    // Manejar canciones individuales (URL o búsqueda) con fallback completo
     let mut track_source = if is_url {
-        // Es una URL directa de video individual
-        youtube_client.get_track(query).await?
+        // Es una URL directa de video individual - usar sistema de fallback
+        let youtube_client = crate::sources::youtube::YouTubeClient::new();
+        match youtube_client.get_track(query).await {
+            Ok(track) => track,
+            Err(e) => {
+                warn!("❌ YouTube falló para URL: {}, probando Invidious...", e);
+                let invidious_client = crate::sources::invidious::InvidiousClient::new();
+                invidious_client.get_track(query).await?
+            }
+        }
     } else {
-        // Es una búsqueda - buscar múltiples resultados y filtrar
+        // Es una búsqueda - usar búsqueda con fallback completo como en search.rs
         info!("🔍 Buscando canción manualmente: {}", query);
         
-        // Búsqueda ultrarrápida
-        let search_results = youtube_client.search_fast(query, 3).await?;
+        // Sistema de fallback: YouTube Fast -> YouTube Estándar -> Invidious
+        let youtube_fast_client = YouTubeFastClient::new();
+        let search_results = match youtube_fast_client.search_fast(query, 5).await {
+            Ok(results) if !results.is_empty() => results,
+            Ok(_) | Err(_) => {
+                info!("🔄 Búsqueda rápida falló, usando método estándar...");
+                let youtube_client = crate::sources::youtube::YouTubeClient::new();
+                match youtube_client.search_detailed(query, 5).await {
+                    Ok(results) if !results.is_empty() => results,
+                    Ok(_) | Err(_) => {
+                        info!("🔄 YouTube falló, usando Invidious...");
+                        let invidious_client = crate::sources::invidious::InvidiousClient::new();
+                        match invidious_client.search(query, 5).await {
+                            Ok(results) => {
+                                // Convertir TrackSource de Invidious a TrackMetadata
+                                results.into_iter().map(|track| {
+                                    crate::sources::youtube::TrackMetadata {
+                                        title: track.title(),
+                                        artist: track.artist(),
+                                        duration: track.duration(),
+                                        thumbnail: track.thumbnail(),
+                                        url: Some(track.url()),
+                                        source_type: track.source_type(),
+                                        is_live: false,
+                                    }
+                                }).collect()
+                            }
+                            Err(e) => {
+                                info!("❌ Invidious también falló: {}", e);
+                                anyhow::bail!("No se encontraron resultados para: {}", query);
+                            }
+                        }
+                    }
+                }
+            }
+        };
         
-        if !search_results.is_empty() {
-            // Tomar el mejor resultado
-            let best_result = &search_results[0];
-            info!("✅ Mejor resultado encontrado: {}", best_result.title);
-            
-            // Convertir metadata a TrackSource
-            let mut track = TrackSource::new(
-                best_result.title.clone(),
-                best_result.url.clone().unwrap_or_default(),
-                SourceType::YouTube,
-                command.user.id,
-            );
-            
-            if let Some(artist) = &best_result.artist {
-                track = track.with_artist(artist.clone());
-            }
-            
-            if let Some(duration) = best_result.duration {
-                track = track.with_duration(duration);
-            }
-            
-            if let Some(thumbnail) = &best_result.thumbnail {
-                track = track.with_thumbnail(thumbnail.clone());
-            }
-            
-            track
-        } else {
-            // Fallback: buscar con el método original
-            warn!("⚠️ Búsqueda rápida no encontró resultados, intentando método tradicional...");
-            
-            let simple_results = youtube_client.search(query, 5).await?;
-            if simple_results.is_empty() {
-                anyhow::bail!("No se encontraron resultados para: {}", query);
-            }
-            
-            // Usar el primer track directamente
-            let fallback_track = &simple_results[0];
-            info!("✅ Resultado fallback encontrado: {}", fallback_track.title());
-            
-            fallback_track.clone()
+        if search_results.is_empty() {
+            anyhow::bail!("No se encontraron resultados para: {}", query);
         }
+        
+        // Tomar el mejor resultado
+        let best_result = &search_results[0];
+        info!("✅ Mejor resultado encontrado: {}", best_result.title);
+        
+        // Convertir metadata a TrackSource
+        let mut track = TrackSource::new(
+            best_result.title.clone(),
+            best_result.url.clone().unwrap_or_default(),
+            SourceType::YouTube,
+            command.user.id,
+        );
+        
+        if let Some(artist) = &best_result.artist {
+            track = track.with_artist(artist.clone());
+        }
+        
+        if let Some(duration) = best_result.duration {
+            track = track.with_duration(duration);
+        }
+        
+        if let Some(thumbnail) = &best_result.thumbnail {
+            track = track.with_thumbnail(thumbnail.clone());
+        }
+        
+        track
     };
 
     // Establecer el usuario que solicitó la canción

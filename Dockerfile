@@ -61,12 +61,12 @@ RUN mkdir -p /app/data /app/cache && \
 
 USER openmusic
 
-# Variables de entorno para optimización
+# Variables de entorno para optimización y autenticación
 ENV RUST_LOG=info \
     RUST_BACKTRACE=1 \
     CACHE_DIR=/app/cache \
     DATA_DIR=/app/data \
-    YTDLP_OPTS="--user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' --extractor-args 'youtube:player_client=android'"
+    YTDLP_OPTS="--user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' --extractor-args 'youtube:player_client=android,web' --no-check-certificate --socket-timeout 30 --retries 3"
 
 EXPOSE 8080
 # Health check básico
