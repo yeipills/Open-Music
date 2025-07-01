@@ -20,6 +20,7 @@ pub struct TrackMetadata {
     pub url: Option<String>,
     pub source_type: SourceType,
     pub is_live: bool,
+    pub stream_url: Option<String>,
 }
 
 /// Cliente para interactuar con YouTube/yt-dlp
@@ -255,6 +256,7 @@ impl YouTubeClient {
             url: Some(info.webpage_url),
             source_type: SourceType::YouTube,
             is_live: info.is_live.unwrap_or(false),
+            stream_url: None,
         }
     }
 

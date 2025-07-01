@@ -193,10 +193,15 @@ impl TrackSource {
 
     /// Intenta crear input usando Invidious
     async fn try_invidious_input(&self) -> Result<Input> {
+        use tracing::info;
+        
         let video_id = InvidiousClient::extract_video_id(&self.url)?;
+        info!("🔗 Extrayendo audio directo para video ID: {}", video_id);
+        
         let invidious_client = InvidiousClient::new();
         let audio_url = invidious_client.get_audio_url(&video_id).await?;
         
+        info!("✅ URL de audio directo obtenida: {}", &audio_url[..50.min(audio_url.len())]);
         self.create_direct_input(&audio_url).await
     }
 

@@ -161,6 +161,7 @@ impl YouTubeFastClient {
                     url: Some(info.webpage_url),
                     source_type: SourceType::YouTube,
                     is_live: info.is_live.unwrap_or(false),
+                    stream_url: None,
                 });
             }
         }

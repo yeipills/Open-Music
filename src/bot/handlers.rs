@@ -244,6 +244,7 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
                                         url: Some(track.url()),
                                         source_type: track.source_type(),
                                         is_live: false,
+                                        stream_url: None,
                                     }
                                 }).collect()
                             }
@@ -262,6 +263,7 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
                                                 url: Some(track.url()),
                                                 source_type: track.source_type(),
                                                 is_live: false,
+                                                stream_url: None,
                                             }
                                         }).collect()
                                     }

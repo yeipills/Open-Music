@@ -77,18 +77,52 @@ pub async fn handle_search_command(
                     let invidious_client = InvidiousClient::new();
                     match invidious_client.search(query, 5).await {
                         Ok(results) => {
-                            // Convertir metadata de Invidious a TrackMetadata
-                            results.into_iter().map(|track| {
-                                crate::sources::youtube::TrackMetadata {
-                                    title: track.title(),
-                                    artist: track.artist(),
-                                    duration: track.duration(),
-                                    thumbnail: track.thumbnail(),
-                                    url: Some(track.url()),
-                                    source_type: track.source_type(),
-                                    is_live: false,
+                            info!("🔄 Configurando tracks de Invidious con URLs directas...");
+                            // Convertir metadata de Invidious a TrackMetadata y obtener stream URLs
+                            let mut invidious_tracks = Vec::new();
+                            for track in results {
+                                // Obtener el stream URL directo para cada track
+                                if let Ok(video_id) = crate::sources::invidious::InvidiousClient::extract_video_id(&track.url()) {
+                                    if let Ok(stream_url) = invidious_client.get_audio_url(&video_id).await {
+                                        info!("✅ Stream URL configurado para: {}", track.title());
+                                        invidious_tracks.push(crate::sources::youtube::TrackMetadata {
+                                            title: track.title(),
+                                            artist: track.artist(),
+                                            duration: track.duration(),
+                                            thumbnail: track.thumbnail(),
+                                            url: Some(track.url()),
+                                            source_type: track.source_type(),
+                                            is_live: false,
+                                            stream_url: Some(stream_url), // Agregar stream URL directo
+                                        });
+                                    } else {
+                                        // Fallback sin stream URL
+                                        invidious_tracks.push(crate::sources::youtube::TrackMetadata {
+                                            title: track.title(),
+                                            artist: track.artist(),
+                                            duration: track.duration(),
+                                            thumbnail: track.thumbnail(),
+                                            url: Some(track.url()),
+                                            source_type: track.source_type(),
+                                            is_live: false,
+                                            stream_url: None,
+                                        });
+                                    }
+                                } else {
+                                    // Fallback sin stream URL
+                                    invidious_tracks.push(crate::sources::youtube::TrackMetadata {
+                                        title: track.title(),
+                                        artist: track.artist(),
+                                        duration: track.duration(),
+                                        thumbnail: track.thumbnail(),
+                                        url: Some(track.url()),
+                                        source_type: track.source_type(),
+                                        is_live: false,
+                                        stream_url: None,
+                                    });
                                 }
-                            }).collect()
+                            }
+                            invidious_tracks
                         }
                         Err(e) => {
                             info!("❌ Invidious también falló: {}, probando RSS...", e);
@@ -105,6 +139,7 @@ pub async fn handle_search_command(
                                             url: Some(track.url()),
                                             source_type: track.source_type(),
                                             is_live: false,
+                                            stream_url: None,
                                         }
                                     }).collect()
                                 }
@@ -154,6 +189,12 @@ pub async fn handle_search_command(
 
             if let Some(thumbnail) = meta.thumbnail {
                 track = track.with_thumbnail(thumbnail);
+            }
+
+            // Si tenemos stream_url directo de Invidious, configurarlo
+            if let Some(stream_url) = meta.stream_url {
+                info!("🎯 Configurando stream URL directo para: {}", track.title());
+                track = track.with_stream_url(stream_url);
             }
 
             track

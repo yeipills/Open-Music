@@ -212,6 +212,9 @@ impl EnhancedYouTubeClient {
             duration,
             url: Some(url),
             thumbnail,
+            source_type: super::SourceType::YouTube,
+            is_live: false,
+            stream_url: None,
         })
     }
 
