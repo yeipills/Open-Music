@@ -63,9 +63,16 @@ pub async fn handle_search_command(
 
     info!("🔍 Búsqueda iniciada por {}: {}", command.user.name, query);
 
-    // Buscar en YouTube (rápido)
-    let youtube_client = YouTubeFastClient::new();
-    let search_results = youtube_client.search_fast(query, 5).await?;
+    // Buscar en YouTube (rápido primero, luego estándar como fallback)
+    let youtube_fast_client = YouTubeFastClient::new();
+    let search_results = match youtube_fast_client.search_fast(query, 5).await {
+        Ok(results) if !results.is_empty() => results,
+        Ok(_) | Err(_) => {
+            info!("🔄 Búsqueda rápida falló, usando método estándar...");
+            let youtube_client = crate::sources::youtube::YouTubeClient::new();
+            youtube_client.search_detailed(query, 5).await?
+        }
+    };
 
     if search_results.is_empty() {
         use serenity::builder::EditInteractionResponse;

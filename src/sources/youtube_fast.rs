@@ -143,16 +143,9 @@ impl YouTubeFastClient {
             .context("Error ejecutando yt-dlp para metadata")?;
 
         if !output.status.success() {
-            // Fallback: crear metadata básica solo con ID
-            return Ok(TrackMetadata {
-                title: format!("Video {}", video_id),
-                artist: None,
-                duration: None,
-                thumbnail: None,
-                url: Some(url),
-                source_type: SourceType::YouTube,
-                is_live: false,
-            });
+            let error = String::from_utf8_lossy(&output.stderr);
+            warn!("yt-dlp falló para {}: {}", video_id, error);
+            anyhow::bail!("No se pudo obtener información del video {}", video_id);
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -170,16 +163,9 @@ impl YouTubeFastClient {
             }
         }
 
-        // Fallback si falla el parsing
-        Ok(TrackMetadata {
-            title: format!("Video {}", video_id),
-            artist: None,
-            duration: None,
-            thumbnail: None,
-            url: Some(url),
-            source_type: SourceType::YouTube,
-            is_live: false,
-        })
+        // Si falla el parsing JSON, intentar con el cliente estándar
+        warn!("No se pudo parsear JSON para video {}, intentando con método alternativo", video_id);
+        anyhow::bail!("No se pudo parsear información del video {}", video_id)
     }
 }
 
