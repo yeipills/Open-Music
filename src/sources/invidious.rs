@@ -73,13 +73,16 @@ impl InvidiousClient {
             .build()
             .expect("Failed to create HTTP client");
 
-        // Lista de instancias públicas de Invidious
+        // Lista actualizada de instancias públicas de Invidious (2025)
         let instances = vec![
-            "https://invidious.io".to_string(),
-            "https://invidious.snopyta.org".to_string(),
-            "https://invidious.kavin.rocks".to_string(),
-            "https://inv.riverside.rocks".to_string(),
-            "https://invidious.flokinet.to".to_string(),
+            "https://yewtu.be".to_string(),
+            "https://inv.nadeko.net".to_string(),
+            "https://invidious.nerdvpn.de".to_string(),
+            "https://invidious.protokolla.fi".to_string(),
+            "https://invidious.privacydev.net".to_string(),
+            "https://vid.puffyan.us".to_string(),
+            "https://invidious.weblibre.org".to_string(),
+            "https://inv.bp.projectsegfau.lt".to_string(),
         ];
 
         Self {
@@ -96,27 +99,44 @@ impl InvidiousClient {
         self.instances[index].clone()
     }
 
-    /// Busca videos en Invidious
+    /// Busca videos en Invidious con mejor manejo de errores
     pub async fn search(&self, query: &str, limit: usize) -> Result<Vec<TrackSource>> {
         info!("🔍 Buscando en Invidious: {}", query);
 
-        for _attempt in 0..3 {
-            let instance = self.get_next_instance();
+        let mut last_error = String::new();
+        
+        // Intentar con todas las instancias disponibles
+        for instance in &self.instances {
             let url = format!("{}/api/v1/search", instance);
-
+            
             match self.try_search(&url, query, limit).await {
-                Ok(results) => {
+                Ok(results) if !results.is_empty() => {
                     info!("✅ Búsqueda exitosa en {}: {} resultados", instance, results.len());
                     return Ok(results);
                 }
+                Ok(_) => {
+                    warn!("⚠️ {} devolvió 0 resultados", instance);
+                    last_error = format!("No results from {}", instance);
+                }
                 Err(e) => {
                     warn!("❌ Falló búsqueda en {}: {}", instance, e);
+                    last_error = format!("{}: {}", instance, e);
                     continue;
                 }
             }
         }
 
-        anyhow::bail!("Falló búsqueda en todas las instancias de Invidious")
+        // Si todas las instancias fallan, intentar método alternativo
+        info!("🔄 Todas las instancias de Invidious fallaron, intentando scraping directo...");
+        match self.search_youtube_direct(query, limit).await {
+            Ok(results) if !results.is_empty() => {
+                info!("✅ Scraping directo exitoso: {} resultados", results.len());
+                return Ok(results);
+            }
+            _ => {}
+        }
+
+        anyhow::bail!("Falló búsqueda en todas las instancias de Invidious. Último error: {}", last_error)
     }
 
     async fn try_search(&self, url: &str, query: &str, limit: usize) -> Result<Vec<TrackSource>> {
@@ -258,6 +278,77 @@ impl InvidiousClient {
         }
 
         anyhow::bail!("No se pudo extraer video ID de la URL: {}", url)
+    }
+
+    /// Método de último recurso: scraping directo de YouTube
+    async fn search_youtube_direct(&self, query: &str, limit: usize) -> Result<Vec<TrackSource>> {
+        use regex::Regex;
+        
+        info!("🔍 Intentando scraping directo de YouTube para: {}", query);
+        
+        let search_url = format!(
+            "https://www.youtube.com/results?search_query={}",
+            urlencoding::encode(query)
+        );
+
+        let response = self.client
+            .get(&search_url)
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await
+            .context("Error en request directo a YouTube")?;
+
+        if !response.status().is_success() {
+            anyhow::bail!("HTTP error en YouTube directo: {}", response.status());
+        }
+
+        let html = response.text().await.context("Error leyendo HTML de YouTube")?;
+        
+        // Extraer video IDs y títulos del HTML
+        let video_regex = Regex::new(r#""videoId":"([a-zA-Z0-9_-]{11})""#)?;
+        let title_regex = Regex::new(r#""title":\{"runs":\[\{"text":"([^"]+)""#)?;
+        
+        let mut results = Vec::new();
+        let mut video_ids = std::collections::HashSet::new();
+        
+        // Extraer video IDs únicos
+        for cap in video_regex.captures_iter(&html) {
+            if let Some(video_id_match) = cap.get(1) {
+                let video_id = video_id_match.as_str();
+                if video_ids.insert(video_id.to_string()) && video_ids.len() <= limit {
+                    // Buscar título correspondiente (aproximado)
+                    let title = if let Some(title_match) = title_regex.captures(&html) {
+                        if let Some(title_text) = title_match.get(1) {
+                            title_text.as_str().to_string()
+                        } else {
+                            format!("YouTube Video {}", video_id)
+                        }
+                    } else {
+                        format!("YouTube Video {}", video_id)
+                    };
+                    
+                    let youtube_url = format!("https://www.youtube.com/watch?v={}", video_id);
+                    
+                    let track = TrackSource::new(
+                        title,
+                        youtube_url,
+                        SourceType::YouTube,
+                        UserId::default(),
+                    );
+                    
+                    results.push(track);
+                    
+                    if results.len() >= limit {
+                        break;
+                    }
+                }
+            }
+        }
+        
+        info!("🔍 Scraping directo encontró {} resultados", results.len());
+        Ok(results)
     }
 }
 

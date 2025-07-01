@@ -248,8 +248,28 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
                                 }).collect()
                             }
                             Err(e) => {
-                                info!("❌ Invidious también falló: {}", e);
-                                anyhow::bail!("No se encontraron resultados para: {}", query);
+                                info!("❌ Invidious también falló: {}, probando RSS...", e);
+                                let rss_client = crate::sources::youtube_rss::YouTubeRssClient::new();
+                                match rss_client.search(query, 5).await {
+                                    Ok(results) => {
+                                        // Convertir TrackSource de RSS a TrackMetadata
+                                        results.into_iter().map(|track| {
+                                            crate::sources::youtube::TrackMetadata {
+                                                title: track.title(),
+                                                artist: track.artist(),
+                                                duration: track.duration(),
+                                                thumbnail: track.thumbnail(),
+                                                url: Some(track.url()),
+                                                source_type: track.source_type(),
+                                                is_live: false,
+                                            }
+                                        }).collect()
+                                    }
+                                    Err(e) => {
+                                        info!("❌ RSS también falló: {}", e);
+                                        anyhow::bail!("No se encontraron resultados para: {}", query);
+                                    }
+                                }
                             }
                         }
                     }

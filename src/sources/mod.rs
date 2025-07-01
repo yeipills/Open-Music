@@ -2,6 +2,7 @@ pub mod direct_url;
 pub mod youtube;
 pub mod youtube_fast;
 pub mod invidious;
+pub mod youtube_rss;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -13,6 +14,7 @@ pub use direct_url::DirectUrlClient;
 pub use youtube::YouTubeClient;
 pub use youtube_fast::YouTubeFastClient;
 pub use invidious::InvidiousClient;
+pub use youtube_rss::YouTubeRssClient;
 
 /// Trait común para todas las fuentes de música
 #[async_trait]
