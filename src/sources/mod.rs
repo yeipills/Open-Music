@@ -1,6 +1,7 @@
 pub mod direct_url;
 pub mod youtube;
 pub mod youtube_fast;
+pub mod invidious;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -11,6 +12,7 @@ use std::time::Duration;
 pub use direct_url::DirectUrlClient;
 pub use youtube::YouTubeClient;
 pub use youtube_fast::YouTubeFastClient;
+pub use invidious::InvidiousClient;
 
 /// Trait común para todas las fuentes de música
 #[async_trait]
@@ -121,52 +123,91 @@ impl TrackSource {
         self
     }
 
-    /// Obtiene el input de audio para songbird (Songbird 0.5.0) con validación mejorada
+    /// Obtiene el input de audio para songbird con fallback a Invidious
     pub async fn get_input(&self) -> Result<Input> {
         use tracing::{info, error, warn};
-        use std::process::Command;
         use std::time::Duration;
         use tokio::time::timeout;
         
         info!("🎵 Creando input para: {}", self.title);
         info!("🔗 URL: {}", self.url);
         
-        // 1. Verificar que yt-dlp esté disponible
+        // Si tenemos stream_url directo, usarlo
+        if let Some(stream_url) = &self.stream_url {
+            info!("🎯 Usando URL directa de stream: {}", stream_url);
+            return self.create_direct_input(stream_url).await;
+        }
+        
+        // Intentar con yt-dlp primero
+        match self.try_ytdlp_input().await {
+            Ok(input) => {
+                info!("✅ Input creado con yt-dlp para: {}", self.title);
+                return Ok(input);
+            }
+            Err(e) => {
+                warn!("❌ yt-dlp falló: {}, intentando con Invidious...", e);
+            }
+        }
+        
+        // Fallback a Invidious
+        match self.try_invidious_input().await {
+            Ok(input) => {
+                info!("✅ Input creado con Invidious para: {}", self.title);
+                Ok(input)
+            }
+            Err(e) => {
+                error!("❌ Todos los métodos fallaron para: {} - {}", self.url, e);
+                anyhow::bail!("No se pudo crear input de audio: {}", e)
+            }
+        }
+    }
+
+    /// Intenta crear input usando yt-dlp
+    async fn try_ytdlp_input(&self) -> Result<Input> {
+        use std::time::Duration;
+        use tokio::time::timeout;
+        
+        // Verificar que yt-dlp esté disponible
         self.verify_ytdlp_availability().await?;
         
-        // 2. Validar URL de YouTube más robustamente
+        // Validar URL de YouTube
         self.validate_youtube_url()?;
         
-        // 3. Verificar que el video sea accesible (comentado temporalmente debido a bloqueos de YouTube)
-        // self.verify_video_accessibility().await?;
-        info!("⚠️ Saltando verificación de accesibilidad por bloqueos de YouTube - los errores se manejarán en reproducción");
-        
-        // 4. Crear input con timeout
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()?;
         
-        info!("🔧 Creando YoutubeDl input...");
-        
-        // Configurar variables de entorno para yt-dlp antes de crear el input
+        // Configurar variables de entorno para yt-dlp
         std::env::set_var("YTDLP_OPTS", "--user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' --extractor-args 'youtube:player_client=android'");
         
-        // Crear YoutubeDl input tradicional
         let ytdl_future = async {
             let ytdl = songbird::input::YoutubeDl::new(client, self.url.clone());
             Input::from(ytdl)
         };
         
-        let input = match timeout(Duration::from_secs(45), ytdl_future).await {
-            Ok(input) => input,
-            Err(_) => {
-                error!("❌ Timeout creando input para: {}", self.url);
-                anyhow::bail!("Timeout al crear input de audio");
-            }
-        };
+        timeout(Duration::from_secs(30), ytdl_future).await
+            .map_err(|_| anyhow::anyhow!("Timeout con yt-dlp"))
+    }
+
+    /// Intenta crear input usando Invidious
+    async fn try_invidious_input(&self) -> Result<Input> {
+        let video_id = InvidiousClient::extract_video_id(&self.url)?;
+        let invidious_client = InvidiousClient::new();
+        let audio_url = invidious_client.get_audio_url(&video_id).await?;
         
-        info!("✅ Input creado exitosamente para: {}", self.title);
-        Ok(input)
+        self.create_direct_input(&audio_url).await
+    }
+
+    /// Crea input desde URL directa
+    async fn create_direct_input(&self, url: &str) -> Result<Input> {
+        use std::time::Duration;
+        
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()?;
+        
+        let input = songbird::input::HttpRequest::new(client, url.to_string());
+        Ok(Input::from(input))
     }
     
     /// Verifica que yt-dlp esté disponible y funcional

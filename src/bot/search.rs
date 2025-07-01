@@ -22,7 +22,7 @@ use tracing::info;
 static SEARCH_SESSIONS: LazyLock<DashMap<String, Vec<TrackSource>>> = LazyLock::new(DashMap::new);
 
 use crate::{
-    sources::{youtube_fast::YouTubeFastClient, SourceType},
+    sources::{youtube_fast::YouTubeFastClient, invidious::InvidiousClient, SourceType},
 };
 
 /// Estructura para manejar resultados de búsqueda
@@ -63,14 +63,40 @@ pub async fn handle_search_command(
 
     info!("🔍 Búsqueda iniciada por {}: {}", command.user.name, query);
 
-    // Buscar en YouTube (rápido primero, luego estándar como fallback)
+    // Búsqueda con múltiples fallbacks: YouTube Fast -> YouTube Estándar -> Invidious
     let youtube_fast_client = YouTubeFastClient::new();
     let search_results = match youtube_fast_client.search_fast(query, 5).await {
         Ok(results) if !results.is_empty() => results,
         Ok(_) | Err(_) => {
             info!("🔄 Búsqueda rápida falló, usando método estándar...");
             let youtube_client = crate::sources::youtube::YouTubeClient::new();
-            youtube_client.search_detailed(query, 5).await?
+            match youtube_client.search_detailed(query, 5).await {
+                Ok(results) if !results.is_empty() => results,
+                Ok(_) | Err(_) => {
+                    info!("🔄 YouTube falló, usando Invidious...");
+                    let invidious_client = InvidiousClient::new();
+                    match invidious_client.search(query, 5).await {
+                        Ok(results) => {
+                            // Convertir metadata de Invidious a TrackMetadata
+                            results.into_iter().map(|track| {
+                                crate::sources::youtube::TrackMetadata {
+                                    title: track.title(),
+                                    artist: track.artist(),
+                                    duration: track.duration(),
+                                    thumbnail: track.thumbnail(),
+                                    url: Some(track.url()),
+                                    source_type: track.source_type(),
+                                    is_live: false,
+                                }
+                            }).collect()
+                        }
+                        Err(e) => {
+                            info!("❌ Invidious también falló: {}", e);
+                            return Err(anyhow::anyhow!("No se encontraron resultados para: {}", query));
+                        }
+                    }
+                }
+            }
         }
     };
 
