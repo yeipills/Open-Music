@@ -106,7 +106,14 @@ impl YouTubeClient {
         debug!("📊 Obteniendo info de: {}", url);
 
         let output = Command::new("yt-dlp")
-            .args(&["--no-playlist", "--dump-json", "--no-warnings", url])
+            .args(&[
+                "--no-playlist", 
+                "--dump-json", 
+                "--no-warnings",
+                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "--extractor-args", "youtube:player_client=android",
+                url
+            ])
             .output()
             .await
             .context("Error al ejecutar yt-dlp")?;
@@ -137,6 +144,8 @@ impl YouTubeClient {
                 "bestaudio/best",
                 "--get-url",
                 "--no-warnings",
+                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "--extractor-args", "youtube:player_client=android",
                 url,
             ])
             .output()
@@ -292,6 +301,8 @@ impl YouTubeClient {
                 "--socket-timeout", "8",
                 "--retries", "1",
                 "--no-cache-dir",
+                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "--extractor-args", "youtube:player_client=android",
                 &search_query,
             ])
             .output()
