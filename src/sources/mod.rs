@@ -148,7 +148,10 @@ impl TrackSource {
         
         info!("🔧 Creando YoutubeDl input...");
         
-        // Crear YoutubeDl input con timeout
+        // Configurar variables de entorno para yt-dlp antes de crear el input
+        std::env::set_var("YTDLP_OPTS", "--user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' --extractor-args 'youtube:player_client=android'");
+        
+        // Crear YoutubeDl input tradicional
         let ytdl_future = async {
             let ytdl = songbird::input::YoutubeDl::new(client, self.url.clone());
             Input::from(ytdl)
