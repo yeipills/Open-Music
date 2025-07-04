@@ -73,7 +73,7 @@ impl InvidiousClient {
             .build()
             .expect("Failed to create HTTP client");
 
-        // Lista actualizada de instancias públicas de Invidious (2025)
+        // Lista actualizada de instancias públicas de Invidious (2025) - Anti-SSAP
         let instances = vec![
             "https://yewtu.be".to_string(),
             "https://inv.nadeko.net".to_string(),
@@ -83,6 +83,9 @@ impl InvidiousClient {
             "https://vid.puffyan.us".to_string(),
             "https://invidious.weblibre.org".to_string(),
             "https://inv.bp.projectsegfau.lt".to_string(),
+            "https://invidious.fdn.fr".to_string(),
+            "https://invidious.slipfox.xyz".to_string(),
+            "https://invidious.dhusch.de".to_string(),
         ];
 
         Self {

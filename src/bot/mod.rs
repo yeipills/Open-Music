@@ -44,7 +44,7 @@ pub mod events;
 pub mod handlers;
 pub mod search;
 
-use crate::{audio::player::AudioPlayer, cache::MusicCache, config::Config, storage::JsonStorage};
+use crate::{audio::player::AudioPlayer, cache::MusicCache, config::Config, storage::JsonStorage, monitoring::MonitoringSystem};
 
 /// Main Discord bot handler for Open Music Bot.
 ///
@@ -77,6 +77,8 @@ pub struct OpenMusicBot {
     pub player: Arc<AudioPlayer>,
     /// Voice connection handlers per Discord guild
     voice_handlers: DashMap<GuildId, Arc<tokio::sync::Mutex<songbird::Call>>>,
+    /// Sistema de monitoreo para métricas y logs
+    pub monitoring: Arc<MonitoringSystem>,
 }
 
 impl OpenMusicBot {
@@ -108,7 +110,7 @@ impl OpenMusicBot {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn new(config: Config, storage: Arc<tokio::sync::Mutex<JsonStorage>>, cache: Arc<MusicCache>) -> Self {
+    pub fn new(config: Config, storage: Arc<tokio::sync::Mutex<JsonStorage>>, cache: Arc<MusicCache>, monitoring: Arc<MonitoringSystem>) -> Self {
         let config = Arc::new(config);
         let player = Arc::new(AudioPlayer::new());
 
@@ -118,6 +120,7 @@ impl OpenMusicBot {
             cache,
             player,
             voice_handlers: DashMap::new(),
+            monitoring,
         }
     }
 

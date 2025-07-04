@@ -51,7 +51,7 @@ async fn main() -> Result<()> {
 
     // Inicializar sistema de monitoreo
     let monitoring_config = MonitoringConfig::default();
-    let _monitoring = Arc::new(MonitoringSystem::new(monitoring_config));
+    let monitoring = Arc::new(MonitoringSystem::new(monitoring_config));
     info!("📊 Sistema de monitoreo activado");
 
     // Configurar intents mínimos necesarios
@@ -61,7 +61,7 @@ async fn main() -> Result<()> {
         | GatewayIntents::MESSAGE_CONTENT;
 
     // Crear handler del bot
-    let handler = OpenMusicBot::new(config.clone(), storage, cache);
+    let handler = OpenMusicBot::new(config.clone(), storage, cache, monitoring);
 
     // Construir cliente
     let _songbird = Songbird::serenity();

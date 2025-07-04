@@ -26,6 +26,8 @@ pub async fn register_global_commands(ctx: &Context) -> Result<()> {
         join_command(),
         leave_command(),
         help_command(),
+        health_command(),
+        metrics_command(),
     ];
 
 
@@ -56,6 +58,8 @@ pub async fn register_guild_commands(ctx: &Context, guild_id: GuildId) -> Result
         join_command(),
         leave_command(),
         help_command(),
+        health_command(),
+        metrics_command(),
     ];
 
 
@@ -240,4 +244,12 @@ fn help_command() -> CreateCommand {
             "command",
             "Comando específico",
         ))
+}
+
+fn health_command() -> CreateCommand {
+    CreateCommand::new("health").description("Muestra el estado de salud del bot")
+}
+
+fn metrics_command() -> CreateCommand {
+    CreateCommand::new("metrics").description("Muestra métricas de rendimiento del bot")
 }

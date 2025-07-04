@@ -147,7 +147,24 @@ impl TrackSource {
                 return Ok(input);
             }
             Err(e) => {
-                warn!("❌ yt-dlp falló: {}, intentando con Invidious...", e);
+                let error_msg = e.to_string();
+                warn!("❌ yt-dlp falló: {}", error_msg);
+                
+                // Detectar errores SSAP y aplicar estrategias específicas
+                if Self::is_ssap_error(&error_msg) {
+                    warn!("🔍 Error SSAP detectado, aplicando recuperación...");
+                    match self.handle_ssap_error().await {
+                        Ok(input) => {
+                            info!("✅ Recuperación SSAP exitosa para: {}", self.title);
+                            return Ok(input);
+                        }
+                        Err(recovery_error) => {
+                            warn!("❌ Recuperación SSAP falló: {}", recovery_error);
+                        }
+                    }
+                } else {
+                    warn!("❌ Error no-SSAP, intentando con Invidious...");
+                }
             }
         }
         
@@ -168,6 +185,7 @@ impl TrackSource {
     async fn try_ytdlp_input(&self) -> Result<Input> {
         use std::time::Duration;
         use tokio::time::timeout;
+        use tracing::{info, warn};
         
         // Verificar que yt-dlp esté disponible
         self.verify_ytdlp_availability().await?;
@@ -179,16 +197,62 @@ impl TrackSource {
             .timeout(Duration::from_secs(30))
             .build()?;
         
-        // Configurar variables de entorno para yt-dlp con mejores parámetros
-        std::env::set_var("YTDLP_OPTS", "--user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' --extractor-args 'youtube:player_client=android,web' --no-check-certificate --socket-timeout 30 --retries 3");
-        
-        let ytdl_future = async {
-            let ytdl = songbird::input::YoutubeDl::new(client, self.url.clone());
-            Input::from(ytdl)
+        // Configurar variables de entorno para yt-dlp con múltiples estrategias anti-SSAP
+        let cookies_path = std::env::var("HOME").unwrap_or_else(|_| ".".to_string()) + "/.config/yt-dlp/cookies.txt";
+        let cookies_option = if std::path::Path::new(&cookies_path).exists() {
+            format!("--cookies '{}' ", cookies_path)
+        } else {
+            String::new()
         };
         
-        timeout(Duration::from_secs(30), ytdl_future).await
-            .map_err(|_| anyhow::anyhow!("Timeout con yt-dlp"))
+        let opts = format!(
+            "{}--user-agent 'Mozilla/5.0 (Linux; Android 11; SM-A515F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36' \
+            --extractor-args 'youtube:player_client=android_embedded,android_creator,tv_embed' \
+            --extractor-args 'youtube:player_js_variant=main' \
+            --extractor-args 'youtube:skip=dash,hls' \
+            --no-check-certificate --socket-timeout 30 --retries 3 \
+            --retry-sleep 1 --fragment-retries 3 \
+            --http-chunk-size 5M --concurrent-fragments 1 \
+            --format 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[height<=720]/best' \
+            --ignore-errors --no-abort-on-error --quiet --no-warnings",
+            cookies_option
+        );
+        
+        std::env::set_var("YTDLP_OPTS", &opts);
+        info!("🔧 Configurando yt-dlp con opciones anti-SSAP: {}", &opts[..std::cmp::min(100, opts.len())]);
+        
+        // Intentar múltiples configuraciones si la primera falla
+        for attempt in 1..=3 {
+            info!("🔄 Intento {} de creación de input con yt-dlp", attempt);
+            
+            let ytdl_future = async {
+                let ytdl = songbird::input::YoutubeDl::new(client.clone(), self.url.clone());
+                Input::from(ytdl)
+            };
+            
+            match timeout(Duration::from_secs(25), ytdl_future).await {
+                Ok(input) => {
+                    info!("✅ Input creado exitosamente en intento {}", attempt);
+                    return Ok(input);
+                },
+                Err(_) => {
+                    warn!("⏰ Timeout en intento {} de yt-dlp", attempt);
+                    if attempt < 3 {
+                        // Cambiar estrategia para próximo intento
+                        let fallback_opts = match attempt {
+                            1 => format!("{}--user-agent 'Mozilla/5.0 (compatible; Googlebot/2.1)' --extractor-args 'youtube:player_client=android_embedded' --format 'bestaudio/best[height<=480]/best' --quiet --no-warnings", cookies_option),
+                            2 => format!("{}--user-agent 'Mozilla/5.0 (iPad; CPU OS 14_0 like Mac OS X)' --extractor-args 'youtube:player_client=ios' --format 'bestaudio[ext=webm]/bestaudio/best[height<=360]/best' --quiet --no-warnings", cookies_option),
+                            _ => opts.clone()
+                        };
+                        std::env::set_var("YTDLP_OPTS", &fallback_opts);
+                        info!("🔄 Cambiando a estrategia fallback {}", attempt + 1);
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                    }
+                }
+            }
+        }
+        
+        anyhow::bail!("Todos los intentos de yt-dlp fallaron con timeout")
     }
 
     /// Intenta crear input usando Invidious
@@ -337,6 +401,89 @@ impl TrackSource {
         }
         
         Ok(())
+    }
+
+    /// Detecta y maneja problemas relacionados con SSAP de YouTube
+    pub fn is_ssap_error(error_msg: &str) -> bool {
+        let error_lower = error_msg.to_lowercase();
+        error_lower.contains("ssap") 
+        || error_lower.contains("server-side ads") 
+        || error_lower.contains("signature extraction failed")
+        || error_lower.contains("some web client https formats have been skipped")
+        || error_lower.contains("requested format is not available")
+        || error_lower.contains("some formats may be missing")
+        || error_lower.contains("yt-dlp failed with non-zero status code")
+        || error_lower.contains("failed to get formats")
+        || error_lower.contains("no video formats found")
+        || (error_lower.contains("youtube") && error_lower.contains("non-zero status"))
+    }
+
+    /// Aplica estrategias de recuperación para errores SSAP
+    pub async fn handle_ssap_error(&self) -> Result<Input> {
+        use tracing::{warn, info};
+        
+        warn!("🔄 Detectado problema SSAP, aplicando estrategias de recuperación...");
+        
+        // Estrategia 1: Intentar con android_embedded
+        let android_future = self.try_ytdlp_with_client("android_embedded").await;
+        if android_future.is_ok() {
+            info!("✅ Recuperación exitosa con cliente Android Embedded");
+            return android_future;
+        }
+        
+        // Estrategia 2: Usar ios
+        let ios_future = self.try_ytdlp_with_client("ios").await;
+        if ios_future.is_ok() {
+            info!("✅ Recuperación exitosa con cliente iOS");
+            return ios_future;
+        }
+        
+        // Estrategia 3: Usar tv_embed
+        let tv_future = self.try_ytdlp_with_client("tv_embed").await;
+        if tv_future.is_ok() {
+            info!("✅ Recuperación exitosa con cliente TV");
+            return tv_future;
+        }
+        
+        // Estrategia 4: Fallback a Invidious
+        warn!("🔄 Todos los clientes yt-dlp fallaron, usando Invidious...");
+        self.try_invidious_input().await
+    }
+
+    /// Intenta yt-dlp con un cliente específico
+    async fn try_ytdlp_with_client(&self, client: &str) -> Result<Input> {
+        use std::time::Duration;
+        use tokio::time::timeout;
+        
+        let client_reqwest = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()?;
+        
+        // Verificar cookies
+        let cookies_path = std::env::var("HOME").unwrap_or_else(|_| ".".to_string()) + "/.config/yt-dlp/cookies.txt";
+        let cookies_option = if std::path::Path::new(&cookies_path).exists() {
+            format!("--cookies '{}' ", cookies_path)
+        } else {
+            String::new()
+        };
+        
+        // Configurar para cliente específico con fallback más agresivo
+        let opts = format!(
+            "{}--user-agent 'Mozilla/5.0 (Linux; Android 11; SM-A515F) AppleWebKit/537.36' \
+            --extractor-args 'youtube:player_client={}' \
+            --format 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[height<=720]/best' \
+            --ignore-errors --no-abort-on-error --socket-timeout 20 --quiet --no-warnings",
+            cookies_option, client
+        );
+        std::env::set_var("YTDLP_OPTS", &opts);
+        
+        let ytdl_future = async {
+            let ytdl = songbird::input::YoutubeDl::new(client_reqwest, self.url.clone());
+            Input::from(ytdl)
+        };
+        
+        timeout(Duration::from_secs(25), ytdl_future).await
+            .map_err(|_| anyhow::anyhow!("Timeout con cliente {}", client))
     }
 }
 

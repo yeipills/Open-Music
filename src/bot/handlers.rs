@@ -48,6 +48,8 @@ pub async fn handle_command(
         "clear" => handle_clear(ctx, command, bot).await?,
         "playlist" => handle_playlist(ctx, command, bot).await?,
         "help" => handle_help(ctx, command, bot).await?,
+        "health" => handle_health(ctx, command, bot).await?,
+        "metrics" => handle_metrics(ctx, command, bot).await?,
         _ => {
             command
                 .create_response(
@@ -1104,6 +1106,133 @@ async fn handle_direct_url_playlist(
                     &ctx.http,
                     EditInteractionResponse::new()
                         .embed(embeds::create_error_embed("Error", &format!("No se pudo cargar el audio: {}", e)))
+                )
+                .await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_health(ctx: &Context, command: CommandInteraction, bot: &OpenMusicBot) -> Result<()> {
+    use std::collections::HashMap;
+    
+    let health_status = bot.monitoring.perform_health_check().await;
+    let system_metrics = bot.monitoring.get_system_metrics().await;
+    
+    let status_emoji = match health_status {
+        crate::monitoring::HealthStatus::Healthy => "✅",
+        crate::monitoring::HealthStatus::Warning => "⚠️",
+        crate::monitoring::HealthStatus::Critical => "🚨",
+        crate::monitoring::HealthStatus::Unknown => "❓",
+    };
+    
+    let embed = embeds::create_info_embed(
+        &format!("{} Estado de Salud del Bot", status_emoji),
+        &format!(
+            "**Estado**: {:?}\n**Tiempo activo**: {:?}\n**Comandos procesados**: {}\n**Errores**: {}\n**Tasa de error**: {:.2}%",
+            health_status,
+            system_metrics.uptime,
+            system_metrics.total_commands,
+            system_metrics.total_errors,
+            system_metrics.error_rate
+        )
+    );
+
+    command
+        .create_response(
+            &ctx.http,
+            CreateInteractionResponse::Message(
+                CreateInteractionResponseMessage::new()
+                    .embed(embed)
+                    .ephemeral(true),
+            ),
+        )
+        .await?;
+
+    Ok(())
+}
+
+async fn handle_metrics(ctx: &Context, command: CommandInteraction, bot: &OpenMusicBot) -> Result<()> {
+    let metrics_type = command
+        .data
+        .options
+        .iter()
+        .find(|opt| opt.name == "type")
+        .and_then(|opt| opt.value.as_str())
+        .unwrap_or("performance");
+
+    match metrics_type {
+        "performance" => {
+            let system_metrics = bot.monitoring.get_system_metrics().await;
+            let embed = embeds::create_info_embed(
+                "📊 Métricas de Rendimiento",
+                &format!(
+                    "**Tiempo activo**: {:?}\n**Comandos totales**: {}\n**Tasa de error**: {:.2}%\n**Estado**: {:?}",
+                    system_metrics.uptime,
+                    system_metrics.total_commands,
+                    system_metrics.error_rate,
+                    system_metrics.health_status
+                )
+            );
+            
+            command
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .embed(embed)
+                            .ephemeral(true),
+                    ),
+                )
+                .await?;
+        },
+        "errors" => {
+            let error_report = bot.monitoring.get_error_report(Some(24)).await;
+            let mut description = format!("**Errores en las últimas 24h**: {}\n\n", error_report.total_errors);
+            
+            for category in error_report.categories.iter().take(5) {
+                description.push_str(&format!(
+                    "**{}**: {} errores\n",
+                    category.category,
+                    category.total_count
+                ));
+            }
+            
+            let embed = embeds::create_info_embed("🔍 Reporte de Errores", &description);
+            
+            command
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .embed(embed)
+                            .ephemeral(true),
+                    ),
+                )
+                .await?;
+        },
+        _ => {
+            let system_metrics = bot.monitoring.get_system_metrics().await;
+            let embed = embeds::create_info_embed(
+                "📈 Métricas del Sistema",
+                &format!(
+                    "**Tiempo activo**: {:?}\n**Comandos**: {}\n**Errores**: {}\n**Warnings**: {}",
+                    system_metrics.uptime,
+                    system_metrics.total_commands,
+                    system_metrics.total_errors,
+                    system_metrics.total_warnings
+                )
+            );
+            
+            command
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .embed(embed)
+                            .ephemeral(true),
+                    ),
                 )
                 .await?;
         }
