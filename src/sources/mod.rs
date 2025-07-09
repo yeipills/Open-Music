@@ -230,15 +230,18 @@ impl TrackSource {
             });
         
         let opts = format!(
-            "{}--user-agent 'Mozilla/5.0 (Linux; Android 11; SM-A515F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36' \
-            --extractor-args 'youtube:player_client=android_embedded,android_creator,tv_embed' \
+            "{}--user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36' \
+            --extractor-args 'youtube:player_client=android_embedded,android_creator,tv_embed,ios' \
             --extractor-args 'youtube:player_js_variant=main' \
             --extractor-args 'youtube:skip=dash,hls' \
-            --no-check-certificate --socket-timeout 30 --retries 3 \
-            --retry-sleep 1 --fragment-retries 3 \
-            --http-chunk-size 5M --concurrent-fragments 1 \
+            --extractor-args 'youtube:innertube_client=android_creator,android_embedded,tv_embed' \
+            --extractor-args 'youtube:innertube_host=youtubei.googleapis.com' \
+            --no-check-certificate --socket-timeout 30 --retries 5 \
+            --retry-sleep 2 --fragment-retries 5 \
+            --http-chunk-size 10M --concurrent-fragments 1 \
             --format 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[height<=720]/best' \
-            --ignore-errors --no-abort-on-error --quiet --no-warnings",
+            --ignore-errors --no-abort-on-error --quiet --no-warnings \
+            --geo-bypass --force-ipv4",
             cookies_option
         );
         
@@ -264,8 +267,8 @@ impl TrackSource {
                     if attempt < 3 {
                         // Cambiar estrategia para próximo intento
                         let fallback_opts = match attempt {
-                            1 => format!("{}--user-agent 'Mozilla/5.0 (compatible; Googlebot/2.1)' --extractor-args 'youtube:player_client=android_embedded' --format 'bestaudio/best[height<=480]/best' --quiet --no-warnings", cookies_option),
-                            2 => format!("{}--user-agent 'Mozilla/5.0 (iPad; CPU OS 14_0 like Mac OS X)' --extractor-args 'youtube:player_client=ios' --format 'bestaudio[ext=webm]/bestaudio/best[height<=360]/best' --quiet --no-warnings", cookies_option),
+                            1 => format!("{}--user-agent 'Mozilla/5.0 (compatible; Googlebot/2.1)' --extractor-args 'youtube:player_client=android_embedded' --extractor-args 'youtube:innertube_client=android_embedded' --format 'bestaudio/best[height<=480]/best' --quiet --no-warnings --geo-bypass --force-ipv4", cookies_option),
+                            2 => format!("{}--user-agent 'Mozilla/5.0 (iPad; CPU OS 14_0 like Mac OS X)' --extractor-args 'youtube:player_client=ios' --extractor-args 'youtube:innertube_client=ios' --format 'bestaudio[ext=webm]/bestaudio/best[height<=360]/best' --quiet --no-warnings --geo-bypass --force-ipv4", cookies_option),
                             _ => opts.clone()
                         };
                         std::env::set_var("YTDLP_OPTS", &fallback_opts);
@@ -469,11 +472,14 @@ impl TrackSource {
         
         // Configurar para cliente específico con fallback más agresivo
         let opts = format!(
-            "{}--user-agent 'Mozilla/5.0 (Linux; Android 11; SM-A515F) AppleWebKit/537.36' \
+            "{}--user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' \
             --extractor-args 'youtube:player_client={}' \
+            --extractor-args 'youtube:innertube_client={}' \
+            --extractor-args 'youtube:innertube_host=youtubei.googleapis.com' \
             --format 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[height<=720]/best' \
-            --ignore-errors --no-abort-on-error --socket-timeout 20 --quiet --no-warnings",
-            cookies_option, client
+            --ignore-errors --no-abort-on-error --socket-timeout 20 --quiet --no-warnings \
+            --geo-bypass --force-ipv4",
+            cookies_option, client, client
         );
         std::env::set_var("YTDLP_OPTS", &opts);
         
