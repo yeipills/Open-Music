@@ -86,6 +86,7 @@ pub struct PlaylistHistoryEntry {
 }
 
 impl UserPlaylist {
+    #[allow(dead_code)]
     pub fn new(name: String, owner_id: u64, guild_id: u64) -> Self {
         let now = Utc::now();
         let id = format!("{}_{}_{}_{}", guild_id, owner_id, now.timestamp(), fastrand::u32(..));
@@ -106,11 +107,13 @@ impl UserPlaylist {
         }
     }
     
+    #[allow(dead_code)]
     pub fn add_track(&mut self, track: PlaylistTrack) {
         self.tracks.push(track);
         self.updated_at = Utc::now();
     }
     
+    #[allow(dead_code)]
     pub fn remove_track(&mut self, index: usize) -> Option<PlaylistTrack> {
         if index < self.tracks.len() {
             self.updated_at = Utc::now();
@@ -120,6 +123,7 @@ impl UserPlaylist {
         }
     }
     
+    #[allow(dead_code)]
     pub fn total_duration(&self) -> Duration {
         self.tracks
             .iter()
@@ -127,6 +131,7 @@ impl UserPlaylist {
             .sum()
     }
     
+    #[allow(dead_code)]
     pub fn increment_play_count(&mut self) {
         self.play_count += 1;
         self.updated_at = Utc::now();
@@ -134,15 +139,16 @@ impl UserPlaylist {
 }
 
 impl PlaylistTrack {
+    #[allow(dead_code)]
     pub fn from_track_source(track: &crate::sources::TrackSource, added_by: u64) -> Self {
         Self {
-            title: track.title().clone(),
-            artist: track.artist().clone(),
-            url: track.url().clone(),
+            title: track.title(),
+            artist: track.artist(),
+            url: track.url(),
             duration: track.duration(),
-            thumbnail: track.thumbnail().clone(),
+            thumbnail: track.thumbnail(),
             added_by,
-            added_at: Utc::now(),
+            added_at: chrono::Utc::now(),
             source_type: format!("{:?}", track.source_type()),
         }
     }
@@ -152,7 +158,9 @@ impl PlaylistTrack {
 pub struct JsonStorage {
     data_dir: PathBuf,
     servers_cache: HashMap<u64, ServerConfig>,
+    #[allow(dead_code)]
     playlists_cache: HashMap<String, UserPlaylist>,
+    #[allow(dead_code)]
     history_cache: HashMap<(u64, u64), PlaylistHistory>, // (user_id, guild_id)
 }
 
@@ -434,22 +442,20 @@ impl JsonStorage {
     
     // === MÉTODOS PARA PLAYLISTS PERSONALES ===
     
-    /// Crea una nueva playlist personal
-    pub async fn create_playlist(&mut self, name: String, owner_id: u64, guild_id: u64, description: Option<String>) -> Result<UserPlaylist> {
-        let mut playlist = UserPlaylist::new(name, owner_id, guild_id);
-        playlist.description = description;
+    #[allow(dead_code)]
+    pub async fn create_playlist(&mut self, name: String, owner_id: u64, guild_id: u64) -> Result<String> {
+        let playlist = UserPlaylist::new(name, owner_id, guild_id);
+        let playlist_id = playlist.id.clone();
         
-        // Guardar en cache y archivo
-        self.playlists_cache.insert(playlist.id.clone(), playlist.clone());
         self.save_playlist(&playlist).await?;
+        self.playlists_cache.insert(playlist_id.clone(), playlist);
         
-        info!("📝 Playlist personal creada: {} por usuario {}", playlist.name, owner_id);
-        Ok(playlist)
+        Ok(playlist_id)
     }
-    
-    /// Obtiene una playlist personal por ID
+
+    #[allow(dead_code)]
     pub async fn get_playlist(&mut self, playlist_id: &str) -> Result<Option<UserPlaylist>> {
-        // Verificar cache primero
+        // Intentar obtener del caché primero
         if let Some(playlist) = self.playlists_cache.get(playlist_id) {
             return Ok(Some(playlist.clone()));
         }
@@ -463,66 +469,56 @@ impl JsonStorage {
             Err(_) => Ok(None)
         }
     }
-    
-    /// Obtiene todas las playlists de un usuario en un servidor
+
+    #[allow(dead_code)]
     pub async fn get_user_playlists(&mut self, user_id: u64, guild_id: u64) -> Result<Vec<UserPlaylist>> {
-        // Cargar todas las playlists si no están en cache
-        self.load_all_playlists().await?;
+        let mut playlists = Vec::new();
         
-        let user_playlists: Vec<UserPlaylist> = self.playlists_cache
-            .values()
-            .filter(|p| p.owner_id == user_id && p.guild_id == guild_id)
-            .cloned()
-            .collect();
-            
-        Ok(user_playlists)
-    }
-    
-    /// Obtiene playlists públicas de un servidor
-    pub async fn get_public_playlists(&mut self, guild_id: u64) -> Result<Vec<UserPlaylist>> {
-        self.load_all_playlists().await?;
-        
-        let public_playlists: Vec<UserPlaylist> = self.playlists_cache
-            .values()
-            .filter(|p| p.guild_id == guild_id && p.is_public)
-            .cloned()
-            .collect();
-            
-        Ok(public_playlists)
-    }
-    
-    /// Actualiza una playlist existente
-    pub async fn update_playlist(&mut self, playlist: UserPlaylist) -> Result<()> {
-        self.playlists_cache.insert(playlist.id.clone(), playlist.clone());
-        self.save_playlist(&playlist).await?;
-        
-        info!("💾 Playlist actualizada: {}", playlist.name);
-        Ok(())
-    }
-    
-    /// Elimina una playlist
-    pub async fn delete_playlist(&mut self, playlist_id: &str, user_id: u64) -> Result<bool> {
-        // Verificar que el usuario sea el propietario
-        if let Some(playlist) = self.playlists_cache.get(playlist_id) {
-            if playlist.owner_id != user_id {
-                return Ok(false); // No autorizado
+        for playlist in self.playlists_cache.values() {
+            if playlist.owner_id == user_id && playlist.guild_id == guild_id {
+                playlists.push(playlist.clone());
             }
         }
         
-        // Eliminar de cache
-        self.playlists_cache.remove(playlist_id);
+        Ok(playlists)
+    }
+
+    #[allow(dead_code)]
+    pub async fn get_public_playlists(&mut self, guild_id: u64) -> Result<Vec<UserPlaylist>> {
+        let mut playlists = Vec::new();
         
-        // Eliminar archivo
-        let file_path = self.get_playlist_file_path(playlist_id);
-        if file_path.exists() {
-            fs::remove_file(&file_path).await?;
-            info!("🗑️ Playlist eliminada: {}", playlist_id);
-            Ok(true)
-        } else {
-            Ok(false)
+        for playlist in self.playlists_cache.values() {
+            if playlist.guild_id == guild_id && playlist.is_public {
+                playlists.push(playlist.clone());
+            }
         }
+        
+        Ok(playlists)
+    }
+
+    #[allow(dead_code)]
+    pub async fn update_playlist(&mut self, playlist: UserPlaylist) -> Result<()> {
+        self.save_playlist(&playlist).await?;
+        self.playlists_cache.insert(playlist.id.clone(), playlist);
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub async fn delete_playlist(&mut self, playlist_id: &str, user_id: u64) -> Result<bool> {
+        if let Some(playlist) = self.playlists_cache.get(playlist_id) {
+            if playlist.owner_id == user_id {
+                let file_path = self.get_playlist_file_path(playlist_id);
+                if file_path.exists() {
+                    std::fs::remove_file(file_path)?;
+                }
+                self.playlists_cache.remove(playlist_id);
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
     
+    #[allow(dead_code)]
     /// Añade una canción a una playlist
     pub async fn add_track_to_playlist(&mut self, playlist_id: &str, track: PlaylistTrack, user_id: u64) -> Result<bool> {
         if let Some(mut playlist) = self.get_playlist(playlist_id).await? {
@@ -538,6 +534,7 @@ impl JsonStorage {
         }
     }
     
+    #[allow(dead_code)]
     /// Remueve una canción de una playlist
     pub async fn remove_track_from_playlist(&mut self, playlist_id: &str, track_index: usize, user_id: u64) -> Result<Option<PlaylistTrack>> {
         if let Some(mut playlist) = self.get_playlist(playlist_id).await? {
@@ -558,6 +555,7 @@ impl JsonStorage {
     
     // === MÉTODOS PARA HISTORIAL DE PLAYLISTS ===
     
+    #[allow(dead_code)]
     /// Añade una entrada al historial de playlists del usuario
     pub async fn add_to_playlist_history(&mut self, user_id: u64, guild_id: u64, entry: PlaylistHistoryEntry) -> Result<()> {
         let key = (user_id, guild_id);
@@ -594,6 +592,7 @@ impl JsonStorage {
         Ok(())
     }
     
+    #[allow(dead_code)]
     /// Obtiene el historial de playlists de un usuario
     pub async fn get_playlist_history(&mut self, user_id: u64, guild_id: u64) -> Result<PlaylistHistory> {
         let key = (user_id, guild_id);
@@ -621,6 +620,7 @@ impl JsonStorage {
         }
     }
     
+    #[allow(dead_code)]
     /// Marca/desmarca una playlist como favorita
     pub async fn toggle_favorite_playlist(&mut self, user_id: u64, guild_id: u64, playlist_id: String) -> Result<bool> {
         let key = (user_id, guild_id);
@@ -643,6 +643,7 @@ impl JsonStorage {
     
     // === MÉTODOS PRIVADOS PARA PLAYLISTS ===
     
+    #[allow(dead_code)]
     async fn load_playlist(&self, playlist_id: &str) -> Result<UserPlaylist> {
         let file_path = self.get_playlist_file_path(playlist_id);
         let content = fs::read_to_string(&file_path).await?;
@@ -650,6 +651,7 @@ impl JsonStorage {
         Ok(playlist)
     }
     
+    #[allow(dead_code)]
     async fn save_playlist(&self, playlist: &UserPlaylist) -> Result<()> {
         let file_path = self.get_playlist_file_path(&playlist.id);
         let content = serde_json::to_string_pretty(playlist)?;
@@ -657,6 +659,7 @@ impl JsonStorage {
         Ok(())
     }
     
+    #[allow(dead_code)]
     async fn load_all_playlists(&mut self) -> Result<()> {
         let playlists_dir = self.data_dir.join("playlists");
         
@@ -696,6 +699,7 @@ impl JsonStorage {
         Ok(())
     }
     
+    #[allow(dead_code)]
     async fn load_playlist_history(&self, user_id: u64, guild_id: u64) -> Result<PlaylistHistory> {
         let file_path = self.get_history_file_path(user_id, guild_id);
         let content = fs::read_to_string(&file_path).await?;
@@ -703,6 +707,7 @@ impl JsonStorage {
         Ok(history)
     }
     
+    #[allow(dead_code)]
     async fn save_playlist_history(&self, history: &PlaylistHistory) -> Result<()> {
         let file_path = self.get_history_file_path(history.user_id, history.guild_id);
         let content = serde_json::to_string_pretty(history)?;
@@ -710,10 +715,12 @@ impl JsonStorage {
         Ok(())
     }
     
+    #[allow(dead_code)]
     fn get_playlist_file_path(&self, playlist_id: &str) -> PathBuf {
         self.data_dir.join("playlists").join(format!("playlist_{}.json", playlist_id))
     }
     
+    #[allow(dead_code)]
     fn get_history_file_path(&self, user_id: u64, guild_id: u64) -> PathBuf {
         self.data_dir.join("history").join(format!("history_{}_{}.json", guild_id, user_id))
     }

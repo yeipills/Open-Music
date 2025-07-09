@@ -22,7 +22,7 @@ use tracing::info;
 static SEARCH_SESSIONS: LazyLock<DashMap<String, Vec<TrackSource>>> = LazyLock::new(DashMap::new);
 
 use crate::{
-    sources::{youtube_fast::YouTubeFastClient, invidious::InvidiousClient, youtube_rss::YouTubeRssClient, SourceType},
+    sources::{SourceType, smart_source::SmartSource},
 };
 
 /// Estructura para manejar resultados de búsqueda
@@ -63,95 +63,20 @@ pub async fn handle_search_command(
 
     info!("🔍 Búsqueda iniciada por {}: {}", command.user.name, query);
 
-    // Búsqueda con múltiples fallbacks: YouTube Fast -> YouTube Estándar -> Invidious
-    let youtube_fast_client = YouTubeFastClient::new();
-    let search_results = match youtube_fast_client.search_fast(query, 5).await {
-        Ok(results) if !results.is_empty() => results,
-        Ok(_) | Err(_) => {
-            info!("🔄 Búsqueda rápida falló, usando método estándar...");
-            let youtube_client = crate::sources::youtube::YouTubeClient::new();
-            match youtube_client.search_detailed(query, 5).await {
-                Ok(results) if !results.is_empty() => results,
-                Ok(_) | Err(_) => {
-                    info!("🔄 YouTube falló, usando Invidious...");
-                    let invidious_client = InvidiousClient::new();
-                    match invidious_client.search(query, 5).await {
-                        Ok(results) => {
-                            info!("🔄 Configurando tracks de Invidious con URLs directas...");
-                            // Convertir metadata de Invidious a TrackMetadata y obtener stream URLs
-                            let mut invidious_tracks = Vec::new();
-                            for track in results {
-                                // Obtener el stream URL directo para cada track
-                                if let Ok(video_id) = crate::sources::invidious::InvidiousClient::extract_video_id(&track.url()) {
-                                    if let Ok(stream_url) = invidious_client.get_audio_url(&video_id).await {
-                                        info!("✅ Stream URL configurado para: {}", track.title());
-                                        invidious_tracks.push(crate::sources::youtube::TrackMetadata {
-                                            title: track.title(),
-                                            artist: track.artist(),
-                                            duration: track.duration(),
-                                            thumbnail: track.thumbnail(),
-                                            url: Some(track.url()),
-                                            source_type: track.source_type(),
-                                            is_live: false,
-                                            stream_url: Some(stream_url), // Agregar stream URL directo
-                                        });
-                                    } else {
-                                        // Fallback sin stream URL
-                                        invidious_tracks.push(crate::sources::youtube::TrackMetadata {
-                                            title: track.title(),
-                                            artist: track.artist(),
-                                            duration: track.duration(),
-                                            thumbnail: track.thumbnail(),
-                                            url: Some(track.url()),
-                                            source_type: track.source_type(),
-                                            is_live: false,
-                                            stream_url: None,
-                                        });
-                                    }
-                                } else {
-                                    // Fallback sin stream URL
-                                    invidious_tracks.push(crate::sources::youtube::TrackMetadata {
-                                        title: track.title(),
-                                        artist: track.artist(),
-                                        duration: track.duration(),
-                                        thumbnail: track.thumbnail(),
-                                        url: Some(track.url()),
-                                        source_type: track.source_type(),
-                                        is_live: false,
-                                        stream_url: None,
-                                    });
-                                }
-                            }
-                            invidious_tracks
-                        }
-                        Err(e) => {
-                            info!("❌ Invidious también falló: {}, probando RSS...", e);
-                            let rss_client = YouTubeRssClient::new();
-                            match rss_client.search(query, 5).await {
-                                Ok(results) => {
-                                    // Convertir TrackSource de RSS a TrackMetadata
-                                    results.into_iter().map(|track| {
-                                        crate::sources::youtube::TrackMetadata {
-                                            title: track.title(),
-                                            artist: track.artist(),
-                                            duration: track.duration(),
-                                            thumbnail: track.thumbnail(),
-                                            url: Some(track.url()),
-                                            source_type: track.source_type(),
-                                            is_live: false,
-                                            stream_url: None,
-                                        }
-                                    }).collect()
-                                }
-                                Err(e) => {
-                                    info!("❌ RSS también falló: {}", e);
-                                    return Err(anyhow::anyhow!("No se encontraron resultados para: {}", query));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+    // Usar el sistema jerárquico inteligente
+    let smart_source = SmartSource::new();
+    let search_results = match smart_source.search(query, 5).await {
+        Ok(results) if !results.is_empty() => {
+            info!("✅ Búsqueda exitosa con sistema jerárquico: {} resultados", results.len());
+            results
+        }
+        Ok(_) => {
+            info!("⚠️ Sistema jerárquico no encontró resultados");
+            return Err(anyhow::anyhow!("No se encontraron resultados para: {}", query));
+        }
+        Err(e) => {
+            info!("❌ Sistema jerárquico falló: {}", e);
+            return Err(anyhow::anyhow!("Error en búsqueda: {}", e));
         }
     };
 
@@ -167,36 +92,13 @@ pub async fn handle_search_command(
         return Ok(());
     }
 
-    // Convertir metadata a TrackSource
+    // Los resultados ya son TrackSource, solo necesitamos limitarlos y configurar el usuario
     let track_results: Vec<TrackSource> = search_results
         .into_iter()
         .take(5) // Limitar a 5 resultados para el menú
-        .map(|meta| {
-            let mut track = TrackSource::new(
-                meta.title,
-                meta.url.unwrap_or_default(),
-                SourceType::YouTube,
-                command.user.id,
-            );
-
-            if let Some(artist) = meta.artist {
-                track = track.with_artist(artist);
-            }
-
-            if let Some(duration) = meta.duration {
-                track = track.with_duration(duration);
-            }
-
-            if let Some(thumbnail) = meta.thumbnail {
-                track = track.with_thumbnail(thumbnail);
-            }
-
-            // Si tenemos stream_url directo de Invidious, configurarlo
-            if let Some(stream_url) = meta.stream_url {
-                info!("🎯 Configurando stream URL directo para: {}", track.title());
-                track = track.with_stream_url(stream_url);
-            }
-
+        .map(|mut track| {
+            // Configurar el usuario que solicitó la búsqueda
+            track = track.with_requested_by(command.user.id);
             track
         })
         .collect();

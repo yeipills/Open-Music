@@ -11,7 +11,7 @@ use tracing::{info, warn};
 
 use crate::{
     bot::OpenMusicBot,
-    sources::{youtube_fast::YouTubeFastClient, MusicSource, TrackSource, SourceType},
+    sources::{MusicSource, TrackSource, SourceType},
     ui::{buttons, embeds},
 };
 
@@ -132,16 +132,44 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
         .and_then(|opt| opt.value.as_str())
         .ok_or_else(|| anyhow::anyhow!("Query no proporcionado"))?;
 
-    // Defer la respuesta ya que puede tomar tiempo
-    command
+    // Defer la respuesta inmediatamente para evitar timeout
+    if let Err(e) = command
         .create_response(
             &ctx.http,
             CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new()),
         )
-        .await?;
+        .await
+    {
+        warn!("Error al hacer defer de la respuesta: {}", e);
+        // Intentar responder con error
+        let _ = command
+            .create_response(
+                &ctx.http,
+                CreateInteractionResponse::Message(
+                    CreateInteractionResponseMessage::new()
+                        .content("❌ Error al procesar el comando")
+                        .ephemeral(true),
+                ),
+            )
+            .await;
+        return Err(e.into());
+    }
 
     // Verificar que el usuario esté en un canal de voz
-    let voice_channel_id = get_user_voice_channel(ctx, guild_id, command.user.id).await?;
+    let voice_channel_id = match get_user_voice_channel(ctx, guild_id, command.user.id).await {
+        Ok(channel_id) => channel_id,
+        Err(e) => {
+            warn!("Usuario no está en un canal de voz: {}", e);
+            let _ = command
+                .edit_response(
+                    &ctx.http,
+                    serenity::builder::EditInteractionResponse::new()
+                        .content("❌ Debes estar en un canal de voz para usar este comando"),
+                )
+                .await;
+            return Err(e);
+        }
+    };
 
     // Conectar al canal de voz si no está conectado
     if bot.get_voice_handler(guild_id).is_none() {
@@ -219,67 +247,11 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
             }
         }
     } else {
-        // Es una búsqueda - usar búsqueda con fallback completo como en search.rs
-        info!("🔍 Buscando canción manualmente: {}", query);
+        // Es una búsqueda - usar el sistema jerárquico inteligente
+        info!("🔍 Buscando canción con sistema jerárquico: {}", query);
         
-        // Sistema de fallback: YouTube Fast -> YouTube Estándar -> Invidious
-        let youtube_fast_client = YouTubeFastClient::new();
-        let search_results = match youtube_fast_client.search_fast(query, 5).await {
-            Ok(results) if !results.is_empty() => results,
-            Ok(_) | Err(_) => {
-                info!("🔄 Búsqueda rápida falló, usando método estándar...");
-                let youtube_client = crate::sources::youtube::YouTubeClient::new();
-                match youtube_client.search_detailed(query, 5).await {
-                    Ok(results) if !results.is_empty() => results,
-                    Ok(_) | Err(_) => {
-                        info!("🔄 YouTube falló, usando Invidious...");
-                        let invidious_client = crate::sources::invidious::InvidiousClient::new();
-                        match invidious_client.search(query, 5).await {
-                            Ok(results) => {
-                                // Convertir TrackSource de Invidious a TrackMetadata
-                                results.into_iter().map(|track| {
-                                    crate::sources::youtube::TrackMetadata {
-                                        title: track.title(),
-                                        artist: track.artist(),
-                                        duration: track.duration(),
-                                        thumbnail: track.thumbnail(),
-                                        url: Some(track.url()),
-                                        source_type: track.source_type(),
-                                        is_live: false,
-                                        stream_url: None,
-                                    }
-                                }).collect()
-                            }
-                            Err(e) => {
-                                info!("❌ Invidious también falló: {}, probando RSS...", e);
-                                let rss_client = crate::sources::youtube_rss::YouTubeRssClient::new();
-                                match rss_client.search(query, 5).await {
-                                    Ok(results) => {
-                                        // Convertir TrackSource de RSS a TrackMetadata
-                                        results.into_iter().map(|track| {
-                                            crate::sources::youtube::TrackMetadata {
-                                                title: track.title(),
-                                                artist: track.artist(),
-                                                duration: track.duration(),
-                                                thumbnail: track.thumbnail(),
-                                                url: Some(track.url()),
-                                                source_type: track.source_type(),
-                                                is_live: false,
-                                                stream_url: None,
-                                            }
-                                        }).collect()
-                                    }
-                                    Err(e) => {
-                                        info!("❌ RSS también falló: {}", e);
-                                        anyhow::bail!("No se encontraron resultados para: {}", query);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        };
+        let smart_source = crate::sources::smart_source::SmartSource::new();
+        let search_results = smart_source.search_hierarchical(query, 5).await?;
         
         if search_results.is_empty() {
             anyhow::bail!("No se encontraron resultados para: {}", query);
@@ -287,29 +259,9 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
         
         // Tomar el mejor resultado
         let best_result = &search_results[0];
-        info!("✅ Mejor resultado encontrado: {}", best_result.title);
+        info!("✅ Mejor resultado encontrado: {}", best_result.title());
         
-        // Convertir metadata a TrackSource
-        let mut track = TrackSource::new(
-            best_result.title.clone(),
-            best_result.url.clone().unwrap_or_default(),
-            SourceType::YouTube,
-            command.user.id,
-        );
-        
-        if let Some(artist) = &best_result.artist {
-            track = track.with_artist(artist.clone());
-        }
-        
-        if let Some(duration) = best_result.duration {
-            track = track.with_duration(duration);
-        }
-        
-        if let Some(thumbnail) = &best_result.thumbnail {
-            track = track.with_thumbnail(thumbnail.clone());
-        }
-        
-        track
+        best_result.clone()
     };
 
     // Establecer el usuario que solicitó la canción
@@ -317,39 +269,66 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
 
     // Agregar a la cola y reproducir
     if let Some(handler) = bot.get_voice_handler(guild_id) {
-        bot.player
-            .play(guild_id, track_source.clone(), handler)
-            .await?;
+        match bot.player.play(guild_id, track_source.clone(), handler).await {
+            Ok(_) => {
+                // Responder con confirmación de que la canción fue agregada
+                let embed = embeds::create_track_added_embed(&track_source);
+                use serenity::builder::EditInteractionResponse;
+                if let Err(e) = command
+                    .edit_response(&ctx.http, EditInteractionResponse::new().embed(embed))
+                    .await
+                {
+                    warn!("Error al editar respuesta: {}", e);
+                }
 
-        // Responder con confirmación de que la canción fue agregada
-        let embed = embeds::create_track_added_embed(&track_source);
-        use serenity::builder::EditInteractionResponse;
-        command
-            .edit_response(&ctx.http, EditInteractionResponse::new().embed(embed))
-            .await?;
-
-        // Enviar mensaje de "now playing" con botones mejorados en el canal
-        // Esperar un momento para que la canción se procese
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        
-        if let Some(current_track) = bot.player.get_current_track(guild_id).await {
-            let now_playing_embed = embeds::create_now_playing_embed_from_source(&current_track);
-            
-            // Verificar si hay cola para mostrar botones mejorados
-            let queue_info = bot.player.get_queue_info(guild_id).await?;
-            let has_queue = queue_info.total_items > 0;
-            let is_playing = bot.player.is_playing(guild_id).await;
-            let loop_mode = format!("{:?}", queue_info.loop_mode).to_lowercase();
-            
-            let buttons = buttons::create_enhanced_player_buttons(is_playing, has_queue, &loop_mode);
-            
-            command.channel_id.send_message(
-                &ctx.http,
-                serenity::builder::CreateMessage::new()
-                    .embed(now_playing_embed)
-                    .components(buttons)
-            ).await?;
+                // Enviar mensaje de "now playing" con botones mejorados en el canal
+                // Esperar un momento para que la canción se procese
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                
+                if let Some(current_track) = bot.player.get_current_track(guild_id).await {
+                    let now_playing_embed = embeds::create_now_playing_embed_from_source(&current_track);
+                    
+                    // Verificar si hay cola para mostrar botones mejorados
+                    if let Ok(queue_info) = bot.player.get_queue_info(guild_id).await {
+                        let has_queue = queue_info.total_items > 0;
+                        let is_playing = bot.player.is_playing(guild_id).await;
+                        let loop_mode = format!("{:?}", queue_info.loop_mode).to_lowercase();
+                        
+                        let buttons = buttons::create_enhanced_player_buttons(is_playing, has_queue, &loop_mode);
+                        
+                        if let Err(e) = command.channel_id.send_message(
+                            &ctx.http,
+                            serenity::builder::CreateMessage::new()
+                                .embed(now_playing_embed)
+                                .components(buttons)
+                        ).await {
+                            warn!("Error al enviar mensaje de now playing: {}", e);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("Error al reproducir canción: {}", e);
+                let _ = command
+                    .edit_response(
+                        &ctx.http,
+                        serenity::builder::EditInteractionResponse::new()
+                            .content(format!("❌ Error al reproducir: {}", e)),
+                    )
+                    .await;
+                return Err(e);
+            }
         }
+    } else {
+        warn!("No hay handler de voz disponible");
+        let _ = command
+            .edit_response(
+                &ctx.http,
+                serenity::builder::EditInteractionResponse::new()
+                    .content("❌ Error: No hay conexión de voz activa"),
+            )
+            .await;
+        anyhow::bail!("No hay conexión de voz activa");
     }
 
     Ok(())
@@ -1115,7 +1094,7 @@ async fn handle_direct_url_playlist(
 }
 
 async fn handle_health(ctx: &Context, command: CommandInteraction, bot: &OpenMusicBot) -> Result<()> {
-    use std::collections::HashMap;
+    
     
     let health_status = bot.monitoring.perform_health_check().await;
     let system_metrics = bot.monitoring.get_system_metrics().await;

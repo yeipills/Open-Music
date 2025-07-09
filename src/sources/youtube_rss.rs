@@ -13,14 +13,18 @@ pub struct YouTubeRssClient {
 
 #[derive(Debug, Deserialize)]
 struct RssChannel {
+    #[allow(dead_code)]
     item: Vec<RssItem>,
 }
 
 #[derive(Debug, Deserialize)]
 struct RssItem {
+    #[allow(dead_code)]
     title: String,
+    #[allow(dead_code)]
     link: String,
     #[serde(rename = "pubDate")]
+    #[allow(dead_code)]
     pub_date: Option<String>,
 }
 

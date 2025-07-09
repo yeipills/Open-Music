@@ -34,6 +34,9 @@ pub struct Config {
     // Features
     pub enable_equalizer: bool,
     pub enable_autoplay: bool,
+
+    // APIs
+    pub youtube_api_key: Option<String>,
 }
 
 impl Config {
@@ -99,6 +102,9 @@ impl Config {
             enable_autoplay: std::env::var("ENABLE_AUTOPLAY")
                 .unwrap_or_else(|_| "false".to_string())
                 .parse()?,
+
+            // APIs
+            youtube_api_key: std::env::var("YOUTUBE_API_KEY").ok().map(|s| s.to_string()),
         };
 
         // Create directories if they don't exist
@@ -182,6 +188,7 @@ impl Config {
     /// # Returns
     ///
     /// A formatted string suitable for logging or debugging.
+    #[allow(dead_code)]
     pub fn summary(&self) -> String {
         format!(
             "Config Summary:\n  \
@@ -241,6 +248,9 @@ impl Default for Config {
             // Feature defaults
             enable_equalizer: true,
             enable_autoplay: false,
+
+            // APIs
+            youtube_api_key: None,
         }
     }
 }

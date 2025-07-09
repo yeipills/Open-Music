@@ -16,36 +16,47 @@ pub struct YouTubeFastClient {
 #[derive(Debug, Deserialize)]
 struct YouTubeSearchResult {
     #[serde(rename = "videoId")]
+    #[allow(dead_code)]
     video_id: String,
+    #[allow(dead_code)]
     title: String,
     #[serde(rename = "lengthText")]
+    #[allow(dead_code)]
     length_text: Option<LengthText>,
     #[serde(rename = "ownerText")]
+    #[allow(dead_code)]
     owner_text: Option<OwnerText>,
     #[serde(rename = "thumbnails")]
+    #[allow(dead_code)]
     thumbnails: Option<Vec<Thumbnail>>,
 }
 
 #[derive(Debug, Deserialize)]
 struct LengthText {
     #[serde(rename = "simpleText")]
+    #[allow(dead_code)]
     simple_text: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct OwnerText {
+    #[allow(dead_code)]
     runs: Option<Vec<Run>>,
 }
 
 #[derive(Debug, Deserialize)]
 struct Run {
+    #[allow(dead_code)]
     text: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct Thumbnail {
+    #[allow(dead_code)]
     url: String,
+    #[allow(dead_code)]
     width: Option<u32>,
+    #[allow(dead_code)]
     height: Option<u32>,
 }
 

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use serenity::model::id::{GuildId, UserId};
+use serenity::model::id::GuildId;
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 use tokio::sync::{RwLock, Mutex};
 use tracing::{debug, info, warn, error};
@@ -10,6 +10,7 @@ use super::queue::{QueueItem, LoopMode, QueueInfo, QueuePage};
 
 /// Sistema robusto de cola con manejo de errores avanzado y recuperación automática
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct RobustQueue {
     inner: Arc<RwLock<MusicQueue>>,
     error_recovery: Arc<Mutex<ErrorRecovery>>,
@@ -17,6 +18,7 @@ pub struct RobustQueue {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct MusicQueue {
     items: VecDeque<QueueItem>,
     current: Option<QueueItem>,
@@ -30,6 +32,7 @@ struct MusicQueue {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct ErrorRecovery {
     consecutive_failures: u8,
     last_failure_time: Option<DateTime<Utc>>,
@@ -39,6 +42,7 @@ struct ErrorRecovery {
 }
 
 impl RobustQueue {
+    #[allow(dead_code)]
     pub fn new(guild_id: GuildId, max_size: usize) -> Self {
         Self {
             inner: Arc::new(RwLock::new(MusicQueue {
@@ -64,6 +68,7 @@ impl RobustQueue {
     }
 
     /// Agrega un track a la cola con validación
+    #[allow(dead_code)]
     pub async fn add_track(&self, source: TrackSource) -> Result<()> {
         let mut queue = self.inner.write().await;
         
@@ -88,6 +93,7 @@ impl RobustQueue {
     }
 
     /// Obtiene el siguiente track con manejo robusto de errores
+    #[allow(dead_code)]
     pub async fn next_track(&self) -> Option<TrackSource> {
         let mut queue = self.inner.write().await;
         let mut recovery = self.error_recovery.lock().await;
@@ -200,6 +206,7 @@ impl RobustQueue {
     }
 
     /// Reporta que un track falló al reproducirse
+    #[allow(dead_code)]
     pub async fn report_track_failure(&self, track_url: &str, error: &str) {
         let mut queue = self.inner.write().await;
         let mut recovery = self.error_recovery.lock().await;
@@ -233,6 +240,7 @@ impl RobustQueue {
     }
 
     /// Reporta que un track se reprodujo exitosamente
+    #[allow(dead_code)]
     pub async fn report_track_success(&self, track_url: &str) {
         let mut queue = self.inner.write().await;
         let mut recovery = self.error_recovery.lock().await;
@@ -248,6 +256,7 @@ impl RobustQueue {
     }
 
     /// Salta canciones con validación
+    #[allow(dead_code)]
     pub async fn skip(&self, amount: usize) -> usize {
         let mut queue = self.inner.write().await;
         let available = amount.min(queue.items.len());
@@ -264,6 +273,7 @@ impl RobustQueue {
     }
 
     /// Limpia la cola con confirmación
+    #[allow(dead_code)]
     pub async fn clear(&self) -> usize {
         let mut queue = self.inner.write().await;
         let cleared = queue.items.len();
@@ -278,6 +288,7 @@ impl RobustQueue {
     }
 
     /// Limpia duplicados de forma inteligente
+    #[allow(dead_code)]
     pub async fn clear_duplicates(&self) -> usize {
         let mut queue = self.inner.write().await;
         let mut seen = std::collections::HashSet::new();
@@ -293,11 +304,12 @@ impl RobustQueue {
     }
 
     /// Obtiene información completa de la cola
+    #[allow(dead_code)]
     pub async fn get_info(&self) -> QueueInfo {
         let queue = self.inner.read().await;
         let recovery = self.error_recovery.lock().await;
         
-        let mut info = QueueInfo {
+        let info = QueueInfo {
             current: queue.current.clone(),
             items: queue.items.iter().cloned().collect(),
             total_items: queue.items.len(),
@@ -322,6 +334,7 @@ impl RobustQueue {
     }
 
     /// Configuración avanzada de recovery
+    #[allow(dead_code)]
     pub async fn configure_recovery(&self, skip_failed: bool, max_retries: u8) {
         let mut recovery = self.error_recovery.lock().await;
         recovery.skip_failed_tracks = skip_failed;
@@ -330,6 +343,7 @@ impl RobustQueue {
     }
 
     /// Obtiene estadísticas de la cola
+    #[allow(dead_code)]
     pub async fn get_stats(&self) -> QueueStats {
         let queue = self.inner.read().await;
         let recovery = self.error_recovery.lock().await;
@@ -346,21 +360,25 @@ impl RobustQueue {
 
     /// Métodos de compatibilidad con la interfaz original
     
+    #[allow(dead_code)]
     pub async fn current(&self) -> Option<QueueItem> {
         let queue = self.inner.read().await;
         queue.current.clone()
     }
 
+    #[allow(dead_code)]
     pub async fn is_empty(&self) -> bool {
         let queue = self.inner.read().await;
         queue.items.is_empty() && queue.current.is_none()
     }
 
+    #[allow(dead_code)]
     pub async fn len(&self) -> usize {
         let queue = self.inner.read().await;
         queue.items.len()
     }
 
+    #[allow(dead_code)]
     pub async fn toggle_shuffle(&self) -> bool {
         let mut queue = self.inner.write().await;
         queue.shuffle = !queue.shuffle;
@@ -372,6 +390,7 @@ impl RobustQueue {
         queue.shuffle
     }
 
+    #[allow(dead_code)]
     pub async fn set_loop_mode(&self, mode: LoopMode) {
         let mut queue = self.inner.write().await;
         queue.loop_mode = mode;
@@ -382,6 +401,7 @@ impl RobustQueue {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn get_page(&self, page: usize, items_per_page: usize) -> QueuePage {
         let info = self.get_info().await;
         info.get_page(page, items_per_page)
@@ -389,6 +409,7 @@ impl RobustQueue {
 }
 
 impl MusicQueue {
+    #[allow(dead_code)]
     fn add_to_history(&mut self, item: QueueItem) {
         self.history.push(item);
         if self.history.len() > self.max_history {
@@ -398,6 +419,7 @@ impl MusicQueue {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct QueueStats {
     pub total_items: usize,
     pub failed_tracks: usize,
