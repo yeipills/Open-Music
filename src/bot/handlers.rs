@@ -257,35 +257,23 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
             anyhow::bail!("No se encontraron resultados para: {}", query);
         }
         
-        // Si hay solo un resultado, tomarlo directamente
-        if search_results.len() == 1 {
-            let track = &search_results[0];
-            info!("✅ Único resultado encontrado: {}", track.title());
-            track.clone()
-        } else {
-            // Múltiples resultados - mostrar selección
-            info!("🔍 {} resultados encontrados, mostrando selección", search_results.len());
-            
-            // Actualizar embed con opciones de selección
-            let selection_embed = embeds::create_selection_embed(&search_results);
-            let selection_components = embeds::create_selection_components(&search_results);
-            
-            // Guardar resultados en sesión
-            let session_key = format!("{}_{}", command.user.id, guild_id);
-            super::search::SEARCH_SESSIONS.insert(session_key, search_results.clone());
-            
-            let _ = command
-                .edit_response(
-                    &ctx.http,
-                    serenity::builder::EditInteractionResponse::new()
-                        .embed(selection_embed)
-                        .components(selection_components)
-                )
-                .await;
-            
-            // Salir temprano - el usuario deberá seleccionar
-            return Ok(());
+        // Seleccionar automáticamente el mejor resultado usando heurísticas
+        let best_result = select_best_result(&search_results, query);
+        info!("✅ Seleccionado automáticamente: {}", best_result.title());
+        
+        // Mostrar qué otros resultados estaban disponibles para transparencia
+        if search_results.len() > 1 {
+            info!("🔍 {} resultados encontrados, seleccionando el más relevante", search_results.len());
+            for track in search_results.iter() {
+                if track.title() == best_result.title() {
+                    info!("🎵 [SELECCIONADO] {}", track.title());
+                } else {
+                    info!("🎵 [DISPONIBLE] {}", track.title());
+                }
+            }
         }
+        
+        best_result
     };
 
     // Establecer el usuario que solicitó la canción
@@ -1244,3 +1232,103 @@ async fn handle_metrics(ctx: &Context, command: CommandInteraction, bot: &OpenMu
     Ok(())
 }
 
+
+
+/// Selecciona el mejor resultado basándose en heurísticas de relevancia
+fn select_best_result(results: &[TrackSource], query: &str) -> TrackSource {
+    if results.is_empty() {
+        panic!("No se pueden seleccionar resultados de una lista vacía");
+    }
+    
+    if results.len() == 1 {
+        return results[0].clone();
+    }
+    
+    let query_lower = query.to_lowercase();
+    let mut best_result = &results[0];
+    let mut best_score = 0.0;
+    
+    for result in results {
+        let mut score = 0.0;
+        let title_lower = result.title().to_lowercase();
+        
+        // Factor 1: Coincidencia exacta en el título (peso alto)
+        if title_lower.contains(&query_lower) {
+            score += 100.0;
+        }
+        
+        // Factor 2: Similitud de palabras clave
+        let query_words: Vec<&str> = query_lower.split_whitespace().collect();
+        let title_words: Vec<&str> = title_lower.split_whitespace().collect();
+        
+        for query_word in &query_words {
+            if query_word.len() > 2 { // Solo palabras significativas
+                for title_word in &title_words {
+                    if title_word.contains(query_word) {
+                        score += 50.0;
+                    }
+                }
+            }
+        }
+        
+        // Factor 3: Penalizar ciertos tipos de contenido
+        let title_penalties = [
+            ("remix", -20.0),
+            ("cover", -15.0),
+            ("karaoke", -30.0),
+            ("instrumental", -25.0),
+            ("live", -10.0),
+            ("8d", -20.0),
+            ("slowed", -15.0),
+            ("reverb", -15.0),
+            ("speed", -20.0),
+            ("nightcore", -25.0),
+        ];
+        
+        for (penalty_word, penalty_value) in &title_penalties {
+            if title_lower.contains(penalty_word) {
+                score += penalty_value;
+            }
+        }
+        
+        // Factor 4: Preferir contenido oficial
+        let official_bonus = [
+            ("official", 30.0),
+            ("music video", 25.0),
+            ("video oficial", 30.0),
+            ("official music", 35.0),
+        ];
+        
+        for (bonus_word, bonus_value) in &official_bonus {
+            if title_lower.contains(bonus_word) {
+                score += bonus_value;
+            }
+        }
+        
+        // Factor 5: Preferir duraciones normales para canciones (2-8 minutos)
+        if let Some(duration) = result.duration() {
+            let duration_secs = duration.as_secs();
+            if duration_secs >= 120 && duration_secs <= 480 { // 2-8 minutos
+                score += 10.0;
+            } else if duration_secs < 60 || duration_secs > 600 { // Muy corto o muy largo
+                score -= 15.0;
+            }
+        }
+        
+        // Factor 6: Bonus por artista conocido (si coincide con la búsqueda)
+        if let Some(artist) = result.artist() {
+            let artist_lower = artist.to_lowercase();
+            if query_lower.contains(&artist_lower) || artist_lower.contains(&query_lower) {
+                score += 40.0;
+            }
+        }
+        
+        // Actualizar el mejor resultado si este tiene mejor score
+        if score > best_score {
+            best_score = score;
+            best_result = result;
+        }
+    }
+    
+    best_result.clone()
+}

@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use serenity::model::id::UserId;
 use songbird::input::Input;
 use std::time::Duration;
+use tracing::{info, warn, debug};
 
 pub use direct_url::DirectUrlClient;
 pub use youtube::YouTubeClient;
@@ -205,12 +206,28 @@ impl TrackSource {
             .build()?;
         
         // Configurar variables de entorno para yt-dlp con múltiples estrategias anti-SSAP
-        let cookies_path = std::env::var("HOME").unwrap_or_else(|_| ".".to_string()) + "/.config/yt-dlp/cookies.txt";
-        let cookies_option = if std::path::Path::new(&cookies_path).exists() {
-            format!("--cookies '{}' ", cookies_path)
-        } else {
-            String::new()
-        };
+        let cookies_paths = vec![
+            "/home/openmusic/.config/yt-dlp/cookies.txt".to_string(),
+            std::env::var("HOME").unwrap_or_else(|_| ".".to_string()) + "/.config/yt-dlp/cookies.txt",
+            "/app/.config/yt-dlp/cookies.txt".to_string(),
+        ];
+        
+        let cookies_option = cookies_paths
+            .iter()
+            .find(|path| {
+                let exists = std::path::Path::new(path).exists();
+                if exists {
+                    info!("🍪 Cookies encontradas en: {}", path);
+                } else {
+                    debug!("🍪 No se encontraron cookies en: {}", path);
+                }
+                exists
+            })
+            .map(|path| format!("--cookies '{}' ", path))
+            .unwrap_or_else(|| {
+                warn!("🍪 No se encontraron cookies en ningún path, usando configuración sin cookies");
+                String::new()
+            });
         
         let opts = format!(
             "{}--user-agent 'Mozilla/5.0 (Linux; Android 11; SM-A515F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36' \
@@ -426,13 +443,29 @@ impl TrackSource {
             .timeout(Duration::from_secs(30))
             .build()?;
         
-        // Verificar cookies
-        let cookies_path = std::env::var("HOME").unwrap_or_else(|_| ".".to_string()) + "/.config/yt-dlp/cookies.txt";
-        let cookies_option = if std::path::Path::new(&cookies_path).exists() {
-            format!("--cookies '{}' ", cookies_path)
-        } else {
-            String::new()
-        };
+        // Verificar cookies - priorizar path del contenedor Docker
+        let cookies_paths = vec![
+            "/home/openmusic/.config/yt-dlp/cookies.txt".to_string(),
+            std::env::var("HOME").unwrap_or_else(|_| ".".to_string()) + "/.config/yt-dlp/cookies.txt",
+            "/app/.config/yt-dlp/cookies.txt".to_string(),
+        ];
+        
+        let cookies_option = cookies_paths
+            .iter()
+            .find(|path| {
+                let exists = std::path::Path::new(path).exists();
+                if exists {
+                    info!("🍪 Cookies encontradas en: {}", path);
+                } else {
+                    debug!("🍪 No se encontraron cookies en: {}", path);
+                }
+                exists
+            })
+            .map(|path| format!("--cookies '{}' ", path))
+            .unwrap_or_else(|| {
+                warn!("🍪 No se encontraron cookies en ningún path, usando configuración sin cookies");
+                String::new()
+            });
         
         // Configurar para cliente específico con fallback más agresivo
         let opts = format!(
