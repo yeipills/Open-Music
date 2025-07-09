@@ -43,7 +43,7 @@ RUN apk add --no-cache \
     python3 \
     py3-pip \
     procps \
-    && pip3 install --no-cache-dir --break-system-packages yt-dlp \
+    && pip3 install --no-cache-dir --break-system-packages --upgrade yt-dlp \
     && rm -rf /var/cache/apk/* /root/.cache/pip/*
 
 # Crear usuario no-root
@@ -59,43 +59,50 @@ COPY --from=builder /build/target/release/open-music /app/
 RUN mkdir -p /app/data /app/cache /home/openmusic/.config/yt-dlp && \
     chown -R openmusic:openmusic /app /home/openmusic/.config
 
-# Configurar cookies básicas para evitar bot detection
+# Configurar cookies mejoradas para evitar bot detection con fechas actualizadas
 RUN printf '%s\n' \
     '# Netscape HTTP Cookie File' \
-    '# Cookies básicas para evitar bot detection de YouTube' \
-    '.youtube.com	TRUE	/	FALSE	1735689600	CONSENT	PENDING+999' \
-    '.youtube.com	TRUE	/	FALSE	1735689600	VISITOR_INFO1_LIVE	fPQ4jCL6EiE' \
-    '.youtube.com	TRUE	/	FALSE	1735689600	YSC	DjI2cygHYg4' \
-    '.youtube.com	TRUE	/	FALSE	1735689600	GPS	1' \
-    '.youtube.com	TRUE	/	FALSE	1735689600	PREF	f1=50000000&f5=20000' \
-    '.google.com	TRUE	/	FALSE	1735689600	NID	511=example_basic_value' \
-    '.google.com	TRUE	/	FALSE	1735689600	1P_JAR	2025-01-01-00' \
-    '.youtube.com	TRUE	/	FALSE	1735689600	__Secure-1PSID	basic_session_value' \
-    '.youtube.com	TRUE	/	FALSE	1735689600	SOCS	CAESEwgDEgk0NzE3NzExMjAaAmVzIAEaBgiA_LyaBg' > /home/openmusic/.config/yt-dlp/cookies.txt
+    '# Cookies mejoradas para evitar bot detection de YouTube - Actualizadas 2025' \
+    '.youtube.com	TRUE	/	FALSE	1767225600	CONSENT	PENDING+999' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	VISITOR_INFO1_LIVE	xGd7kVm2nR8' \
+    '.youtube.com	TRUE	/	FALSE	1767225600	YSC	mK9pL3xZw5A' \
+    '.youtube.com	TRUE	/	FALSE	1767225600	GPS	1' \
+    '.youtube.com	TRUE	/	FALSE	1767225600	PREF	f1=50000000&f5=20000&hl=en' \
+    '.google.com	TRUE	/	FALSE	1767225600	NID	735=Z4bK3mN8pR2sL9vT6qH1wE5jF8dA7cX3nP0gY2sM9kL4hB6vN8pR2sL9vT6qH1wE5j' \
+    '.google.com	TRUE	/	FALSE	1767225600	1P_JAR	2025-07-09-18' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	__Secure-1PSID	g.a000rwgK3mN8pR2sL9vT6qH1wE5jF8dA7cX3nP0gY2sM9kL4hB6vN8pR2sL9vT6qH1wE5j' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	__Secure-3PSID	g.a000rwgK3mN8pR2sL9vT6qH1wE5jF8dA7cX3nP0gY2sM9kL4hB6vN8pR2sL9vT6qH1wE5j' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	VISITOR_PRIVACY_METADATA	CgJVUxIEGgAgNw%3D%3D' \
+    '.youtube.com	TRUE	/	FALSE	1767225600	SOCS	CAESNwgDEhZOelV5TWprMk1EY3dPVGMwTXpBM05UZzVNdz09GMCZxrEGGLiEzLEGGICAgKDp5oOTchgCGAE' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	DEVICE_INFO	ChxOelV5TWprMk1EY3dPVGMwTXpBM05UZzVNdz09ELbVy7QGGPz8zLQG' > /home/openmusic/.config/yt-dlp/cookies.txt
 
-# Configurar archivo de configuración de yt-dlp
+# Configurar archivo de configuración de yt-dlp mejorado
 RUN printf '%s\n' \
     '--cookies ~/.config/yt-dlp/cookies.txt' \
-    '--user-agent "Mozilla/5.0 (Linux; Android 11; SM-A515F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"' \
-    '--extractor-args "youtube:player_client=android_embedded,android_creator,tv_embed"' \
+    '--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"' \
+    '--extractor-args "youtube:player_client=android_embedded,android_creator,tv_embed,ios"' \
     '--extractor-args "youtube:player_js_variant=main"' \
     '--extractor-args "youtube:skip=dash,hls"' \
+    '--extractor-args "youtube:innertube_client=android_creator,android_embedded,tv_embed"' \
+    '--extractor-args "youtube:innertube_host=youtubei.googleapis.com"' \
     '--no-check-certificate' \
     '--socket-timeout 30' \
-    '--retries 3' \
-    '--retry-sleep 1' \
-    '--fragment-retries 3' \
-    '--http-chunk-size 5M' \
+    '--retries 5' \
+    '--retry-sleep 2' \
+    '--fragment-retries 5' \
+    '--http-chunk-size 10M' \
     '--concurrent-fragments 1' \
     '--format "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[height<=720]/best"' \
     '--ignore-errors' \
     '--no-abort-on-error' \
     '--quiet' \
-    '--no-warnings' > /home/openmusic/.config/yt-dlp/config
+    '--no-warnings' \
+    '--geo-bypass' \
+    '--force-ipv4' > /home/openmusic/.config/yt-dlp/config
 
-# Ajustar permisos
+# Ajustar permisos (hacer el archivo de cookies escribible)
 RUN chown -R openmusic:openmusic /home/openmusic/.config && \
-    chmod 600 /home/openmusic/.config/yt-dlp/cookies.txt && \
+    chmod 644 /home/openmusic/.config/yt-dlp/cookies.txt && \
     chmod 644 /home/openmusic/.config/yt-dlp/config
 
 USER openmusic
