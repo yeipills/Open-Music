@@ -894,3 +894,86 @@ fn format_duration(duration: Duration) -> String {
         format!("{}:{:02}", minutes, seconds)
     }
 }
+
+/// Crea un embed para mostrar opciones de selección de canciones
+pub fn create_selection_embed(results: &[crate::sources::TrackSource]) -> CreateEmbed {
+    let mut description = String::new();
+    description.push_str("🎵 **Selecciona una canción:**\n\n");
+    
+    for (i, track) in results.iter().take(5).enumerate() {
+        let duration = if let Some(dur) = track.duration() {
+            format!(" `[{}]`", format_duration(dur))
+        } else {
+            String::new()
+        };
+        
+        let artist = track.artist()
+            .as_ref()
+            .map(|a| format!(" - {}", a))
+            .unwrap_or_default();
+        
+        description.push_str(&format!(
+            "**{}**. **{}**{}{}\n",
+            i + 1,
+            track.title(),
+            artist,
+            duration
+        ));
+    }
+    
+    description.push_str("\n💡 Usa el menú desplegable para seleccionar");
+    
+    CreateEmbed::default()
+        .title("🎵 Opciones de Reproducción")
+        .description(&description)
+        .color(colors::INFO_BLUE)
+        .footer(CreateEmbedFooter::new("Selecciona la canción que deseas reproducir"))
+        .timestamp(Timestamp::now())
+}
+
+/// Crea un embed de advertencia
+#[allow(dead_code)]
+pub fn create_warning_embed(title: &str, description: &str) -> CreateEmbed {
+    CreateEmbed::default()
+        .title(format!("⚠️ {}", title))
+        .description(description)
+        .color(colors::WARNING_ORANGE)
+        .timestamp(Timestamp::now())
+        .footer(CreateEmbedFooter::new("Open Music Bot"))
+}
+
+/// Crea componentes de selección para múltiples resultados
+pub fn create_selection_components(results: &[crate::sources::TrackSource]) -> Vec<CreateActionRow> {
+    use serenity::builder::{CreateSelectMenu, CreateSelectMenuOption};
+    
+    let mut options = Vec::new();
+    
+    for (i, track) in results.iter().take(5).enumerate() {
+        let duration = if let Some(dur) = track.duration() {
+            format!(" [{}]", format_duration(dur))
+        } else {
+            String::new()
+        };
+        
+        let artist = track.artist()
+            .as_ref()
+            .map(|a| format!(" - {}", a))
+            .unwrap_or_default();
+        
+        let label = format!("{}. {}{}", i + 1, track.title(), artist);
+        let description = format!("YouTube{}", duration);
+        
+        options.push(
+            CreateSelectMenuOption::new(label, format!("track_{}", i))
+                .description(description)
+                .emoji('🎵')
+        );
+    }
+    
+    let select_menu = CreateSelectMenu::new("track_selection", serenity::builder::CreateSelectMenuKind::String { options })
+        .placeholder("Elige una canción para reproducir...")
+        .min_values(1)
+        .max_values(1);
+    
+    vec![CreateActionRow::SelectMenu(select_menu)]
+}
