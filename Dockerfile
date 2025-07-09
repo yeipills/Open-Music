@@ -56,11 +56,14 @@ WORKDIR /app
 COPY --from=builder /build/target/release/open-music /app/
 
 # Crear directorios necesarios incluyendo yt-dlp config
-RUN mkdir -p /app/data /app/cache /home/openmusic/.config/yt-dlp && \
+RUN mkdir -p /app/data /app/cache /home/openmusic/.config && \
     chown -R openmusic:openmusic /app /home/openmusic/.config
 
-# Configurar cookies mejoradas para evitar bot detection con fechas actualizadas
+# Crear script de configuración de yt-dlp que se ejecutará en runtime
 RUN printf '%s\n' \
+    '#!/bin/sh' \
+    'mkdir -p /home/openmusic/.config/yt-dlp' \
+    'cat > /home/openmusic/.config/yt-dlp/cookies.txt << "EOF"' \
     '# Netscape HTTP Cookie File' \
     '# Cookies mejoradas para evitar bot detection de YouTube - Actualizadas 2025' \
     '.youtube.com	TRUE	/	FALSE	1767225600	CONSENT	PENDING+999' \
@@ -74,10 +77,9 @@ RUN printf '%s\n' \
     '.youtube.com	TRUE	/	TRUE	1767225600	__Secure-3PSID	g.a000rwgK3mN8pR2sL9vT6qH1wE5jF8dA7cX3nP0gY2sM9kL4hB6vN8pR2sL9vT6qH1wE5j' \
     '.youtube.com	TRUE	/	TRUE	1767225600	VISITOR_PRIVACY_METADATA	CgJVUxIEGgAgNw%3D%3D' \
     '.youtube.com	TRUE	/	FALSE	1767225600	SOCS	CAESNwgDEhZOelV5TWprMk1EY3dPVGMwTXpBM05UZzVNdz09GMCZxrEGGLiEzLEGGICAgKDp5oOTchgCGAE' \
-    '.youtube.com	TRUE	/	TRUE	1767225600	DEVICE_INFO	ChxOelV5TWprMk1EY3dPVGMwTXpBM05UZzVNdz09ELbVy7QGGPz8zLQG' > /home/openmusic/.config/yt-dlp/cookies.txt
-
-# Configurar archivo de configuración de yt-dlp mejorado
-RUN printf '%s\n' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	DEVICE_INFO	ChxOelV5TWprMk1EY3dPVGMwTXpBM05UZzVNdz09ELbVy7QGGPz8zLQG' \
+    'EOF' \
+    'cat > /home/openmusic/.config/yt-dlp/config << "EOF"' \
     '--cookies ~/.config/yt-dlp/cookies.txt' \
     '--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"' \
     '--extractor-args "youtube:player_client=android_embedded,android_creator,tv_embed,ios"' \
@@ -98,12 +100,11 @@ RUN printf '%s\n' \
     '--quiet' \
     '--no-warnings' \
     '--geo-bypass' \
-    '--force-ipv4' > /home/openmusic/.config/yt-dlp/config
-
-# Ajustar permisos (hacer el archivo de cookies escribible)
-RUN chown -R openmusic:openmusic /home/openmusic/.config && \
-    chmod 644 /home/openmusic/.config/yt-dlp/cookies.txt && \
-    chmod 644 /home/openmusic/.config/yt-dlp/config
+    '--force-ipv4' \
+    'EOF' \
+    'chmod 644 /home/openmusic/.config/yt-dlp/cookies.txt' \
+    'chmod 644 /home/openmusic/.config/yt-dlp/config' > /app/setup-yt-dlp.sh && \
+    chmod +x /app/setup-yt-dlp.sh
 
 USER openmusic
 
@@ -119,4 +120,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD pgrep open-music > /dev/null || exit 1
 
-ENTRYPOINT ["/app/open-music"]
+ENTRYPOINT ["/bin/sh", "-c", "/app/setup-yt-dlp.sh && /app/open-music"]
