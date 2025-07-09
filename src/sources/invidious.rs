@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde::Deserialize;
 use std::time::Duration;
-use tracing::{info, warn, error};
+use tracing::{info, warn};
 use serenity::model::id::UserId;
 
 use super::{MusicSource, SourceType, TrackSource};
@@ -15,42 +15,47 @@ pub struct InvidiousClient {
 }
 
 #[derive(Debug, Deserialize)]
-struct InvidiousVideo {
+pub struct InvidiousVideo {
     #[serde(rename = "videoId")]
-    video_id: String,
-    title: String,
-    #[serde(rename = "lengthSeconds")]
-    length_seconds: Option<u64>,
-    author: Option<String>,
-    #[serde(rename = "videoThumbnails")]
-    video_thumbnails: Option<Vec<Thumbnail>>,
-    #[serde(rename = "adaptiveFormats")]
-    adaptive_formats: Option<Vec<AdaptiveFormat>>,
-    #[serde(rename = "formatStreams")]
-    format_streams: Option<Vec<FormatStream>>,
+    pub video_id: String,
+    pub title: String,
+    pub description: String,
+    pub lengthSeconds: u64,
+    pub author: String,
+    pub authorId: String,
+    pub published: u64,
+    pub viewCount: u64,
+    pub likeCount: u64,
+    pub subCountText: String,
+    pub thumbnails: Vec<Thumbnail>,
+    pub adaptiveFormats: Vec<AdaptiveFormat>,
+    pub formatStreams: Vec<FormatStream>,
 }
 
 #[derive(Debug, Deserialize)]
-struct Thumbnail {
-    url: String,
-    width: u32,
-    height: u32,
+pub struct Thumbnail {
+    pub url: String,
+    pub width: u32,
+    #[allow(dead_code)]
+    pub height: u32,
 }
 
 #[derive(Debug, Deserialize)]
-struct AdaptiveFormat {
-    url: String,
+pub struct AdaptiveFormat {
+    pub url: String,
     #[serde(rename = "type")]
-    format_type: String,
-    bitrate: Option<u64>,
+    pub format_type: String,
+    #[allow(dead_code)]
+    pub bitrate: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
-struct FormatStream {
-    url: String,
+pub struct FormatStream {
+    pub url: String,
     #[serde(rename = "type")]
-    format_type: String,
-    quality: String,
+    pub format_type: String,
+    #[allow(dead_code)]
+    pub quality: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -69,23 +74,22 @@ impl InvidiousClient {
     pub fn new() -> Self {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(15))
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .build()
             .expect("Failed to create HTTP client");
 
-        // Lista actualizada de instancias públicas de Invidious (2025) - Anti-SSAP
+        // Lista actualizada de instancias públicas de Invidious (2025) - Más confiables
         let instances = vec![
-            "https://yewtu.be".to_string(),
-            "https://inv.nadeko.net".to_string(),
-            "https://invidious.nerdvpn.de".to_string(),
-            "https://invidious.protokolla.fi".to_string(),
-            "https://invidious.privacydev.net".to_string(),
-            "https://vid.puffyan.us".to_string(),
-            "https://invidious.weblibre.org".to_string(),
-            "https://inv.bp.projectsegfau.lt".to_string(),
-            "https://invidious.fdn.fr".to_string(),
+            "https://invidious.projectsegfau.lt".to_string(),
             "https://invidious.slipfox.xyz".to_string(),
+            "https://invidious.privacydev.net".to_string(),
+            "https://invidious.fdn.fr".to_string(),
+            "https://invidious.weblibre.org".to_string(),
             "https://invidious.dhusch.de".to_string(),
+            "https://invidious.protokolla.fi".to_string(),
+            "https://vid.puffyan.us".to_string(),
+            "https://inv.bp.projectsegfau.lt".to_string(),
+            "https://yewtu.be".to_string(),
         ];
 
         Self {
@@ -107,9 +111,10 @@ impl InvidiousClient {
         info!("🔍 Buscando en Invidious: {}", query);
 
         let mut last_error = String::new();
+        let mut successful_results: Vec<TrackSource> = Vec::new();
         
         // Intentar con todas las instancias disponibles
-        for instance in &self.instances {
+        for (i, instance) in self.instances.iter().enumerate() {
             let url = format!("{}/api/v1/search", instance);
             
             match self.try_search(&url, query, limit).await {
@@ -122,8 +127,16 @@ impl InvidiousClient {
                     last_error = format!("No results from {}", instance);
                 }
                 Err(e) => {
-                    warn!("❌ Falló búsqueda en {}: {}", instance, e);
-                    last_error = format!("{}: {}", instance, e);
+                    let error_msg = e.to_string();
+                    warn!("❌ Falló búsqueda en {}: {}", instance, error_msg);
+                    last_error = format!("{}: {}", instance, error_msg);
+                    
+                    // Si es un error 429 (rate limit), esperar un poco
+                    if error_msg.contains("429") {
+                        info!("⏳ Rate limit detectado, esperando 2 segundos...");
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                    }
+                    
                     continue;
                 }
             }
@@ -136,7 +149,12 @@ impl InvidiousClient {
                 info!("✅ Scraping directo exitoso: {} resultados", results.len());
                 return Ok(results);
             }
-            _ => {}
+            Ok(_) => {
+                warn!("⚠️ Scraping directo devolvió 0 resultados");
+            }
+            Err(e) => {
+                warn!("❌ Scraping directo falló: {}", e);
+            }
         }
 
         anyhow::bail!("Falló búsqueda en todas las instancias de Invidious. Último error: {}", last_error)
@@ -167,6 +185,11 @@ impl InvidiousClient {
 
         let mut tracks = Vec::new();
         for result in search_results.into_iter().take(limit) {
+            // Validar que el resultado tenga los campos mínimos necesarios
+            if result.video_id.is_empty() || result.title.is_empty() {
+                continue;
+            }
+
             let duration = result.length_seconds.map(Duration::from_secs);
             let thumbnail = result.video_thumbnails
                 .and_then(|thumbs| thumbs.into_iter().find(|t| t.width >= 320))
@@ -245,22 +268,16 @@ impl InvidiousClient {
         let video_info = self.get_video_info(video_id).await?;
 
         // Buscar formato de audio
-        if let Some(adaptive_formats) = video_info.adaptive_formats {
-            for format in adaptive_formats {
-                if format.format_type.contains("audio") && format.format_type.contains("mp4") {
-                    info!("✅ Encontrado formato de audio: {}", format.format_type);
-                    return Ok(format.url);
-                }
+        for format in &video_info.adaptiveFormats {
+            if format.format_type.contains("audio") && format.format_type.contains("mp4") {
+                return Ok(format.url.clone());
             }
         }
 
         // Fallback a format streams
-        if let Some(format_streams) = video_info.format_streams {
-            for format in format_streams {
-                if format.format_type.contains("audio") {
-                    info!("✅ Encontrado formato de audio fallback: {}", format.format_type);
-                    return Ok(format.url);
-                }
+        for format in &video_info.formatStreams {
+            if format.format_type.contains("audio") {
+                return Ok(format.url.clone());
             }
         }
 
@@ -365,9 +382,10 @@ impl MusicSource for InvidiousClient {
         let video_id = Self::extract_video_id(url)?;
         let video_info = self.get_video_info(&video_id).await?;
 
-        let duration = video_info.length_seconds.map(Duration::from_secs);
-        let thumbnail = video_info.video_thumbnails
-            .and_then(|thumbs| thumbs.into_iter().find(|t| t.width >= 320))
+        let duration = Some(Duration::from_secs(video_info.lengthSeconds));
+        let thumbnail = video_info.thumbnails
+            .into_iter()
+            .find(|t| t.width >= 320)
             .map(|t| t.url);
 
         let mut track = TrackSource::new(
@@ -377,9 +395,7 @@ impl MusicSource for InvidiousClient {
             UserId::default(),
         );
 
-        if let Some(author) = video_info.author {
-            track = track.with_artist(author);
-        }
+        track = track.with_artist(video_info.author);
 
         if let Some(duration) = duration {
             track = track.with_duration(duration);

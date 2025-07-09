@@ -3,6 +3,9 @@ pub mod youtube;
 pub mod youtube_fast;
 pub mod invidious;
 pub mod youtube_rss;
+pub mod youtube_enhanced;
+pub mod youtube_api_v3;
+pub mod smart_source;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -15,6 +18,10 @@ pub use youtube::YouTubeClient;
 pub use youtube_fast::YouTubeFastClient;
 pub use invidious::InvidiousClient;
 pub use youtube_rss::YouTubeRssClient;
+pub use youtube_enhanced::EnhancedYouTubeClient;
+pub use youtube_api_v3::YouTubeAPIv3Client;
+pub use smart_source::SmartSource;
+
 
 /// Trait común para todas las fuentes de música
 #[async_trait]
@@ -128,8 +135,8 @@ impl TrackSource {
     /// Obtiene el input de audio para songbird con fallback a Invidious
     pub async fn get_input(&self) -> Result<Input> {
         use tracing::{info, error, warn};
-        use std::time::Duration;
-        use tokio::time::timeout;
+        
+        
         
         info!("🎵 Creando input para: {}", self.title);
         info!("🔗 URL: {}", self.url);
@@ -350,54 +357,14 @@ impl TrackSource {
     }
     
     /// Verifica que el video sea accesible antes de crear el input
+    #[allow(dead_code)]
     async fn verify_video_accessibility(&self) -> Result<()> {
-        use tracing::{info, warn, error};
-        use std::time::Duration;
-        use tokio::time::timeout;
+        // Verificar si el video es accesible
+        let client = reqwest::Client::new();
+        let response = client.head(&self.url).send().await?;
         
-        info!("🔍 Verificando accesibilidad del video...");
-        
-        // Usar yt-dlp para verificar que el video existe y es accesible
-        let check_future = tokio::process::Command::new("yt-dlp")
-            .args(&[
-                "--simulate",
-                "--no-warnings", 
-                "--quiet",
-                "--get-title",
-                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "--extractor-args", "youtube:player_client=android,web",
-                "--no-check-certificate",
-                &self.url
-            ])
-            .output();
-        
-        let output = match timeout(Duration::from_secs(15), check_future).await {
-            Ok(Ok(output)) => output,
-            Ok(Err(e)) => {
-                error!("❌ Error ejecutando yt-dlp para verificación: {:?}", e);
-                anyhow::bail!("Error verificando video: {:?}", e);
-            }
-            Err(_) => {
-                warn!("⚠️ Timeout verificando video, continuando...");
-                return Ok(()); // Continuar si hay timeout en verificación
-            }
-        };
-        
-        if output.status.success() {
-            let title = String::from_utf8_lossy(&output.stdout);
-            info!("✅ Video accesible: {}", title.trim());
-        } else {
-            let error_msg = String::from_utf8_lossy(&output.stderr);
-            error!("❌ Video no accesible: {}", error_msg.trim());
-            
-            // Verificar errores específicos
-            if error_msg.contains("Video unavailable") || error_msg.contains("Private video") {
-                anyhow::bail!("Video no disponible o privado");
-            } else if error_msg.contains("Age-restricted") {
-                anyhow::bail!("Video restringido por edad");
-            } else {
-                anyhow::bail!("Error accediendo al video: {}", error_msg.trim());
-            }
+        if !response.status().is_success() {
+            anyhow::bail!("Video no accesible: {}", response.status());
         }
         
         Ok(())

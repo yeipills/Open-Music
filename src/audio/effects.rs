@@ -63,6 +63,7 @@ impl AudioEffects {
     }
 
     /// Resetea el ecualizador a plano
+    #[allow(dead_code)]
     pub fn reset_equalizer(&self) {
         self.apply_equalizer_preset(EqualizerPreset::Flat);
         info!("🔄 Ecualizador reseteado a plano");

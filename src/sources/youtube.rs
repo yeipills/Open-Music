@@ -43,13 +43,14 @@ pub struct YtDlpInfo {
     pub is_live: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct Format {
-    format_id: String,
-    url: String,
-    acodec: Option<String>,
-    abr: Option<f64>,
+#[derive(Debug, Clone, Deserialize)]
+pub struct Format {
+    pub url: String,
+    pub ext: Option<String>,
+    pub format_id: Option<String>,
+    pub filesize: Option<u64>,
+    pub duration: Option<f64>,
+    pub quality: Option<String>,
 }
 
 impl YouTubeClient {
@@ -352,47 +353,16 @@ impl YouTubeClient {
     }
 
     /// Filtrado rápido y simple
+    #[allow(dead_code)]
     pub fn filter_results(&self, results: Vec<TrackMetadata>, query: &str) -> Vec<TrackMetadata> {
-        let mut filtered = results;
-        let query_lower = query.to_lowercase();
-        let query_words: Vec<&str> = query_lower.split_whitespace().collect();
-        
-        info!("⚡ Filtrado rápido de {} resultados", filtered.len());
-        
-        // Filtro básico y rápido - solo duración válida
-        filtered.retain(|track| {
-            if let Some(duration) = track.duration {
-                let minutes = duration.as_secs() / 60;
-                minutes >= 1 && minutes <= 60 // Entre 1 minuto y 1 hora (más restrictivo = más rápido)
-            } else {
-                !track.is_live // Excluir streams en vivo
-            }
-        });
-        
-        // Ordenamiento rápido - solo por palabras coincidentes
-        filtered.sort_by(|a, b| {
-            let a_title = a.title.to_lowercase();
-            let b_title = b.title.to_lowercase();
-            
-            // Simple scoring: contar palabras que coinciden
-            let a_matches = query_words.iter().filter(|&&word| a_title.contains(word)).count();
-            let b_matches = query_words.iter().filter(|&&word| b_title.contains(word)).count();
-            
-            b_matches.cmp(&a_matches)
-        });
-        
-        // Log del mejor resultado
-        if let Some(best) = filtered.first() {
-            let duration_str = if let Some(dur) = best.duration {
-                format!("{:.1}min", dur.as_secs() as f64 / 60.0)
-            } else {
-                "Live".to_string()
-            };
-            let artist_str = best.artist.as_ref().map(|a| format!(" by {}", a)).unwrap_or_default();
-            info!("  🎯 Mejor resultado: {} {} [{}]", best.title, artist_str, duration_str);
-        }
-        
-        filtered
+        // Filtro simple basado en similitud de título
+        results.into_iter()
+            .filter(|track| {
+                let title_lower = track.title.to_lowercase();
+                let query_lower = query.to_lowercase();
+                title_lower.contains(&query_lower)
+            })
+            .collect()
     }
 
     /// Actualiza yt-dlp (debe ejecutarse periódicamente)

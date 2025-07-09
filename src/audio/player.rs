@@ -338,6 +338,7 @@ impl AudioPlayer {
     }
 
     /// Resetea el ecualizador
+    #[allow(dead_code)]
     pub async fn reset_equalizer(&self, _guild_id: GuildId) -> Result<()> {
         self.effects.reset_equalizer();
         Ok(())
@@ -363,6 +364,7 @@ impl AudioPlayer {
     }
 
     /// Obtiene el track que se está reproduciendo ahora
+    #[allow(dead_code)]
     pub fn get_now_playing(&self, guild_id: GuildId) -> Option<TrackSource> {
         let queue = self.get_or_create_queue(guild_id);
         let q = queue.read();
@@ -373,13 +375,16 @@ impl AudioPlayer {
 /// Estructura para compartir datos del player con los event handlers
 #[derive(Clone)]
 pub struct AudioPlayerData {
+    #[allow(dead_code)]
     queues: DashMap<GuildId, Arc<RwLock<MusicQueue>>>,
+    #[allow(dead_code)]
     effects: Arc<AudioEffects>,
     current_tracks: DashMap<GuildId, TrackHandle>,
 }
 
 impl AudioPlayerData {
     /// Reproduce la siguiente canción en la cola
+    #[allow(dead_code)]
     async fn play_next(&self, guild_id: GuildId, handler: Arc<Mutex<Call>>) {
         // Obtener siguiente track de la cola
         let queue = self.queues.get(&guild_id);
@@ -446,7 +451,9 @@ impl AudioPlayerData {
 /// Handler para cuando un track termina normalmente
 pub struct TrackEndHandler {
     guild_id: GuildId,
+    #[allow(dead_code)]
     player: Arc<AudioPlayerData>,
+    #[allow(dead_code)]
     handler: Arc<Mutex<Call>>,
 }
 
@@ -469,7 +476,9 @@ impl SongbirdEventHandler for TrackEndHandler {
 /// Handler para cuando hay un error en el track
 pub struct TrackErrorHandler {
     guild_id: GuildId,
+    #[allow(dead_code)]
     player: Arc<AudioPlayerData>,
+    #[allow(dead_code)]
     handler: Arc<Mutex<Call>>,
 }
 

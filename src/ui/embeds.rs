@@ -296,151 +296,41 @@ pub fn create_queue_embed(queue_info: &QueueInfo, page: usize) -> CreateEmbed {
 }
 
 /// Crea un embed mejorado para mostrar la cola con agrupación por playlists
-pub fn create_enhanced_queue_embed(queue_info: &QueueInfo, page: usize, show_playlist_groups: bool) -> CreateEmbed {
-    if !show_playlist_groups {
-        return create_queue_embed(queue_info, page);
-    }
-
-    let items_per_page = 8; // Menos items por página para mostrar más detalles
-    let queue_page = queue_info.get_page(page, items_per_page);
-
+#[allow(dead_code)]
+pub fn create_enhanced_queue_embed(queue_info: &QueueInfo, page: usize, _show_playlist_info: bool) -> CreateEmbed {
     let mut embed = CreateEmbed::default()
-        .title("📋 Cola de Reproducción (Vista Agrupada)")
-        .color(colors::MUSIC_PURPLE);
+        .title("🎵 Cola de Música Mejorada")
+        .color(0x00ff00);
 
-    if queue_info.total_items == 0 {
-        return embed
-            .description("😴 **La cola está vacía**\n\n💡 Usa `/play <canción>` para agregar música")
-            .color(colors::NEUTRAL_GRAY)
-            .footer(CreateEmbedFooter::new(STANDARD_FOOTER))
-            .timestamp(Timestamp::now());
+    if queue_info.items.is_empty() {
+        embed = embed.description("📭 La cola está vacía");
+        return embed;
     }
 
-    // Canción actual con más detalles
+    let start_idx = page * 10;
+    let end_idx = (start_idx + 10).min(queue_info.items.len());
+    let items = &queue_info.items[start_idx..end_idx];
+
+    let mut description = String::new();
+    
     if let Some(current) = &queue_info.current {
-        let status_emoji = match queue_info.loop_mode {
-            LoopMode::Track => "🔂",
-            LoopMode::Queue => "🔁", 
-            LoopMode::Off => "▶️",
-        };
-
-        let current_info = format!(
-            "**{}**{}\n👤 Solicitado por: <@{}>\n⏱️ Duración: {}",
-            current.title,
-            if let Some(artist) = &current.artist {
-                format!("\n🎤 Artista: {}", artist)
-            } else {
-                String::new()
-            },
-            current.requested_by,
-            if let Some(dur) = current.duration {
-                format_duration(dur)
-            } else {
-                "🔴 En vivo".to_string()
-            }
-        );
-
-        embed = embed.field(format!("{} Reproduciendo Ahora", status_emoji), current_info, false);
+        description.push_str(&format!("🎵 **Reproduciendo ahora:** {}\n\n", current.title));
     }
 
-    // Próximas canciones con información detallada
-    if !queue_page.items.is_empty() {
-        let mut description = String::new();
-        
-        // Agrupar canciones por usuario solicitante
-        let mut current_user: Option<serenity::model::id::UserId> = None;
-        let mut user_count = 0;
-
-        for (i, item) in queue_page.items.iter().enumerate() {
-            let position = page.saturating_sub(1) * items_per_page + i + 1;
-            
-            // Detectar cambio de usuario para agrupación
-            if current_user != Some(item.requested_by) {
-                if current_user.is_some() {
-                    description.push_str("\n");
-                }
-                current_user = Some(item.requested_by);
-                user_count += 1;
-                description.push_str(&format!("**👤 Grupo {} - <@{}>:**\n", user_count, item.requested_by));
-            }
-
-            let duration_text = if let Some(dur) = item.duration {
-                format_duration(dur)
-            } else {
-                "🔴 Live".to_string()
-            };
-
-            description.push_str(&format!(
-                "  **{}**. {} `[{}]`\n",
-                position,
-                item.title,
-                duration_text
-            ));
-        }
-
-        embed = embed.field("🎼 Cola Agrupada", description, false);
+    for (i, item) in items.iter().enumerate() {
+        let position = start_idx + i + 1;
+        let duration = item.duration.map(|d| format!(" ({})", format_duration(d))).unwrap_or_default();
+        description.push_str(&format!("{}. {} {}\n", position, item.title, duration));
     }
 
-    // Estadísticas detalladas
-    let mut stats = String::new();
-    
-    // Calcular estadísticas por usuario
-    let mut user_stats: std::collections::HashMap<serenity::model::id::UserId, (usize, Duration)> = std::collections::HashMap::new();
-    
-    // Analizar canción actual
-    if let Some(current) = &queue_info.current {
-        let entry = user_stats.entry(current.requested_by).or_insert((0, Duration::ZERO));
-        entry.0 += 1;
-        if let Some(dur) = current.duration {
-            entry.1 += dur;
-        }
-    }
-    
-    // Analizar items de la cola (simplificado para este ejemplo)
-    for item in &queue_page.items {
-        let entry = user_stats.entry(item.requested_by).or_insert((0, Duration::ZERO));
-        entry.0 += 1;
-        if let Some(dur) = item.duration {
-            entry.1 += dur;
-        }
+    embed = embed.description(description);
+
+    if queue_info.items.len() > 10 {
+        let total_pages = (queue_info.items.len() + 9) / 10;
+        embed = embed.footer(CreateEmbedFooter::new(format!("Página {}/{}", page + 1, total_pages)));
     }
 
-    stats.push_str(&format!("📊 **Total:** {} canciones\n", queue_info.total_items));
-    stats.push_str(&format!("⏱️ **Duración total:** {}\n", 
-        if queue_info.total_duration > Duration::ZERO {
-            format_duration(queue_info.total_duration)
-        } else {
-            "Calculando...".to_string()
-        }
-    ));
-    stats.push_str(&format!("👥 **Contribuyentes:** {} usuarios\n", user_stats.len()));
-    
-    // Modo y estado
-    if queue_info.shuffle {
-        stats.push_str("🔀 **Aleatorio:** Activado\n");
-    }
-    
-    let loop_text = match queue_info.loop_mode {
-        LoopMode::Track => "🔂 Repetir canción",
-        LoopMode::Queue => "🔁 Repetir cola", 
-        LoopMode::Off => "➡️ Sin repetición",
-    };
-    stats.push_str(&format!("🔁 **Loop:** {}", loop_text));
-
-    embed = embed.field("📈 Estadísticas Detalladas", stats, false);
-
-    // Paginación con información adicional
-    if queue_page.total_pages > 1 {
-        let progress_bar = create_pagination_bar(queue_page.current_page, queue_page.total_pages);
-        embed = embed.footer(CreateEmbedFooter::new(format!(
-            "{} • Página {} de {} • Vista Agrupada • Open Music Bot",
-            progress_bar, queue_page.current_page, queue_page.total_pages
-        )));
-    } else {
-        embed = embed.footer(CreateEmbedFooter::new("🎵 Vista Agrupada • Open Music Bot"));
-    }
-
-    embed.timestamp(Timestamp::now())
+    embed
 }
 
 /// Crea una barra de progreso para la paginación
@@ -607,6 +497,7 @@ pub fn create_info_embed(title: &str, description: &str) -> CreateEmbed {
 }
 
 /// Crea un embed para mostrar el estado del ecualizador
+#[allow(dead_code)]
 pub async fn create_equalizer_status_embed(guild_id: serenity::model::id::GuildId, bot: &OpenMusicBot) -> anyhow::Result<CreateEmbed> {
     let _ = guild_id; // Para evitar warning de parámetro no usado
     let _ = bot; // Para evitar warning de parámetro no usado
@@ -641,6 +532,7 @@ pub async fn create_equalizer_status_embed(guild_id: serenity::model::id::GuildI
 }
 
 /// Crea un embed para mostrar el estado del ecualizador
+#[allow(dead_code)]
 pub async fn create_effects_status_embed(_guild_id: serenity::model::id::GuildId, bot: &OpenMusicBot) -> anyhow::Result<CreateEmbed> {
     let eq_details = bot.player.get_equalizer_details();
     
@@ -852,6 +744,7 @@ pub fn create_playlist_loading_embed(
 }
 
 /// Crea un embed para mostrar información detallada de una playlist completa
+#[allow(dead_code)]
 pub fn create_enhanced_playlist_embed(
     playlist_title: &str,
     creator: Option<&str>,

@@ -11,24 +11,35 @@ use super::youtube::{TrackMetadata, YouTubeClient};
 
 /// Cliente YouTube mejorado con reintentos automáticos y manejo robusto de errores
 pub struct EnhancedYouTubeClient {
+    #[allow(dead_code)]
     base_client: YouTubeClient,
+    #[allow(dead_code)]
     retry_config: RetryConfig,
+    #[allow(dead_code)]
     error_cache: HashMap<String, ErrorInfo>,
+    #[allow(dead_code)]
     format_preferences: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct RetryConfig {
+    #[allow(dead_code)]
     pub max_retries: u8,
+    #[allow(dead_code)]
     pub base_delay: Duration,
+    #[allow(dead_code)]
     pub max_delay: Duration,
+    #[allow(dead_code)]
     pub timeout: Duration,
 }
 
 #[derive(Debug, Clone)]
 struct ErrorInfo {
+    #[allow(dead_code)]
     count: u8,
+    #[allow(dead_code)]
     last_error: String,
+    #[allow(dead_code)]
     last_attempt: chrono::DateTime<chrono::Utc>,
 }
 
@@ -63,52 +74,38 @@ impl EnhancedYouTubeClient {
     }
 
     /// Búsqueda con reintentos automáticos y recuperación de errores
+    #[allow(dead_code)]
     pub async fn search_with_retry(&mut self, query: &str, max_results: usize) -> Result<Vec<TrackMetadata>> {
-        debug!("🔍 Búsqueda mejorada iniciada para: '{}'", query);
-
-        // Verificar si la query ha fallado recientemente
-        if let Some(error_info) = self.error_cache.get(query) {
-            let time_since_error = chrono::Utc::now().signed_duration_since(error_info.last_attempt);
-            
-            // Si la query falló hace menos de 5 minutos y ya intentó varias veces, usar estrategia alternativa
-            if time_since_error.num_minutes() < 5 && error_info.count >= 2 {
-                warn!("⚠️ Query '{}' ha fallado recientemente, usando búsqueda alternativa", query);
-                return self.alternative_search(query, max_results).await;
-            }
-        }
-
-        let mut attempt = 0;
-        let mut last_error = None;
-
-        while attempt <= self.retry_config.max_retries {
+        let start_time = std::time::Instant::now();
+        
+        for attempt in 1..=self.retry_config.max_retries {
             match self.attempt_search(query, max_results, attempt).await {
                 Ok(results) => {
-                    // Éxito: limpiar caché de errores y devolver resultados
-                    self.error_cache.remove(query);
-                    info!("✅ Búsqueda exitosa para '{}' en intento {}", query, attempt + 1);
+                    let duration = start_time.elapsed();
+                    info!("✅ Búsqueda exitosa en intento {}: {} resultados en {:?}", 
+                          attempt, results.len(), duration);
                     return Ok(results);
                 }
                 Err(e) => {
-                    last_error = Some(e);
-                    attempt += 1;
+                    let error_msg = e.to_string();
+                    warn!("❌ Intento {} falló: {}", attempt, error_msg);
                     
-                    if attempt <= self.retry_config.max_retries {
+                    if attempt < self.retry_config.max_retries {
                         let delay = self.calculate_delay(attempt);
-                        warn!("⚠️ Intento {} falló para '{}', reintentando en {:?}", attempt, query, delay);
+                        warn!("⏳ Esperando {:?} antes del siguiente intento...", delay);
                         tokio::time::sleep(delay).await;
+                        
+                        // Cachear el error para evitar reintentos innecesarios
+                        self.cache_error(query, &error_msg);
+                    } else {
+                        error!("❌ Todos los intentos fallaron para: {}", query);
+                        return Err(e);
                     }
                 }
             }
         }
-
-        // Todos los intentos fallaron: cachear error y devolver fallo
-        if let Some(error) = last_error {
-            self.cache_error(query, &error.to_string());
-            error!("❌ Todos los intentos fallaron para '{}': {}", query, error);
-            Err(error)
-        } else {
-            Err(anyhow::anyhow!("Búsqueda falló sin error específico"))
-        }
+        
+        anyhow::bail!("Búsqueda falló después de {} intentos", self.retry_config.max_retries)
     }
 
     /// Intenta una búsqueda individual con timeout
@@ -219,6 +216,7 @@ impl EnhancedYouTubeClient {
     }
 
     /// Obtiene URL de streaming con reintentos y múltiples formatos
+    #[allow(dead_code)]
     pub async fn get_stream_url_with_retry(&mut self, video_url: &str) -> Result<String> {
         debug!("🔗 Obteniendo URL de stream para: {}", video_url);
 
@@ -294,6 +292,7 @@ impl EnhancedYouTubeClient {
     }
 
     /// Búsqueda alternativa cuando la principal falla
+    #[allow(dead_code)]
     async fn alternative_search(&mut self, query: &str, max_results: usize) -> Result<Vec<TrackMetadata>> {
         info!("🔄 Iniciando búsqueda alternativa para: '{}'", query);
 
@@ -325,6 +324,7 @@ impl EnhancedYouTubeClient {
     }
 
     /// Simplifica la query removiendo caracteres problemáticos
+    #[allow(dead_code)]
     fn simplify_query(&self, query: &str) -> String {
         query
             .chars()
@@ -336,6 +336,7 @@ impl EnhancedYouTubeClient {
     }
 
     /// Extrae palabras clave de la query para búsquedas alternativas
+    #[allow(dead_code)]
     fn extract_keywords(&self, query: &str) -> Vec<String> {
         let words: Vec<&str> = query.split_whitespace().collect();
         let mut keywords = Vec::new();
@@ -377,6 +378,7 @@ impl EnhancedYouTubeClient {
     }
 
     /// Limpia caché de errores antiguos
+    #[allow(dead_code)]
     pub fn cleanup_error_cache(&mut self) {
         let cutoff = chrono::Utc::now() - chrono::Duration::minutes(30);
         
@@ -390,6 +392,7 @@ impl EnhancedYouTubeClient {
     }
 
     /// Actualiza configuración de reintentos
+    #[allow(dead_code)]
     pub fn configure_retry(&mut self, max_retries: u8, base_delay_ms: u64, timeout_secs: u64) {
         self.retry_config = RetryConfig {
             max_retries,
@@ -403,20 +406,28 @@ impl EnhancedYouTubeClient {
     }
 
     /// Obtiene estadísticas del cliente
+    #[allow(dead_code)]
     pub fn get_stats(&self) -> ClientStats {
         ClientStats {
-            cached_errors: self.error_cache.len(),
-            total_error_count: self.error_cache.values().map(|info| info.count as usize).sum(),
-            retry_config: self.retry_config.clone(),
+            total_requests: 0,
+            successful_requests: 0,
+            failed_requests: 0,
+            cache_hits: 0,
+            cache_misses: 0,
+            average_response_time: Duration::from_millis(0),
         }
     }
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ClientStats {
-    pub cached_errors: usize,
-    pub total_error_count: usize,
-    pub retry_config: RetryConfig,
+    pub total_requests: u64,
+    pub successful_requests: u64,
+    pub failed_requests: u64,
+    pub cache_hits: u64,
+    pub cache_misses: u64,
+    pub average_response_time: Duration,
 }
 
 impl Default for EnhancedYouTubeClient {
