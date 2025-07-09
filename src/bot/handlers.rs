@@ -257,11 +257,35 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
             anyhow::bail!("No se encontraron resultados para: {}", query);
         }
         
-        // Tomar el mejor resultado
-        let best_result = &search_results[0];
-        info!("✅ Mejor resultado encontrado: {}", best_result.title());
-        
-        best_result.clone()
+        // Si hay solo un resultado, tomarlo directamente
+        if search_results.len() == 1 {
+            let track = &search_results[0];
+            info!("✅ Único resultado encontrado: {}", track.title());
+            track.clone()
+        } else {
+            // Múltiples resultados - mostrar selección
+            info!("🔍 {} resultados encontrados, mostrando selección", search_results.len());
+            
+            // Actualizar embed con opciones de selección
+            let selection_embed = embeds::create_selection_embed(&search_results);
+            let selection_components = embeds::create_selection_components(&search_results);
+            
+            // Guardar resultados en sesión
+            let session_key = format!("{}_{}", command.user.id, guild_id);
+            super::search::SEARCH_SESSIONS.insert(session_key, search_results.clone());
+            
+            let _ = command
+                .edit_response(
+                    &ctx.http,
+                    serenity::builder::EditInteractionResponse::new()
+                        .embed(selection_embed)
+                        .components(selection_components)
+                )
+                .await;
+            
+            // Salir temprano - el usuario deberá seleccionar
+            return Ok(());
+        }
     };
 
     // Establecer el usuario que solicitó la canción

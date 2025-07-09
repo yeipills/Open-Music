@@ -19,7 +19,7 @@ use std::time::Duration;
 use tracing::info;
 
 // Almacén global para sesiones de búsqueda
-static SEARCH_SESSIONS: LazyLock<DashMap<String, Vec<TrackSource>>> = LazyLock::new(DashMap::new);
+pub static SEARCH_SESSIONS: LazyLock<DashMap<String, Vec<TrackSource>>> = LazyLock::new(DashMap::new);
 
 use crate::{
     sources::{SourceType, smart_source::SmartSource},
