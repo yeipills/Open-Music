@@ -41,6 +41,9 @@ services:
       - ENABLE_EQUALIZER=true
       - ENABLE_AUTOPLAY=false
       
+      # YouTube API
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
+      
       # Sistema
       - RUST_LOG=info,open_music=debug
       - RUST_BACKTRACE=1
