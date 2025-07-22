@@ -22,7 +22,7 @@ use tracing::info;
 pub static SEARCH_SESSIONS: LazyLock<DashMap<String, Vec<TrackSource>>> = LazyLock::new(DashMap::new);
 
 use crate::{
-    sources::{SourceType, smart_source::SmartSource},
+    sources::{SourceManager},
 };
 
 /// Estructura para manejar resultados de búsqueda
@@ -63,19 +63,21 @@ pub async fn handle_search_command(
 
     info!("🔍 Búsqueda iniciada por {}: {}", command.user.name, query);
 
-    // Usar el sistema jerárquico inteligente
-    let smart_source = SmartSource::new();
-    let search_results = match smart_source.search(query, 5).await {
+    // Usar el sistema optimizado
+    let source_manager = SourceManager::new();
+    let search_results = match source_manager.search_all(query, 5).await {
         Ok(results) if !results.is_empty() => {
-            info!("✅ Búsqueda exitosa con sistema jerárquico: {} resultados", results.len());
-            results
+            // Extraer tracks del primer resultado
+            let tracks = results[0].tracks.clone();
+            info!("✅ Búsqueda exitosa: {} resultados", tracks.len());
+            tracks
         }
         Ok(_) => {
-            info!("⚠️ Sistema jerárquico no encontró resultados");
+            info!("⚠️ No se encontraron resultados");
             return Err(anyhow::anyhow!("No se encontraron resultados para: {}", query));
         }
         Err(e) => {
-            info!("❌ Sistema jerárquico falló: {}", e);
+            info!("❌ Búsqueda falló: {}", e);
             return Err(anyhow::anyhow!("Error en búsqueda: {}", e));
         }
     };

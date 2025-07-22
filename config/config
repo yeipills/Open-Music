@@ -1,0 +1,20 @@
+--cookies ~/.config/yt-dlp/cookies.txt
+--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+--extractor-args "youtube:player_client=android_embedded"
+--no-check-certificate
+--socket-timeout 15
+--retries 2
+--retry-sleep 1
+--fragment-retries 1
+--abort-on-unavailable-fragment
+--http-chunk-size 5M
+--concurrent-fragments 2
+--format "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[height<=720]"
+--ignore-errors
+--no-abort-on-error
+--quiet
+--no-warnings
+--geo-bypass
+--force-ipv4
+--skip-download
+--flat-playlist

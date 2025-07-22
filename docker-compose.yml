@@ -1,4 +1,4 @@
-version: '3.9'
+# docker-compose.yml - Configuración optimizada Open Music Bot
 
 services:
   open-music:
@@ -51,6 +51,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./cache:/app/cache
+      - ./config:/home/openmusic/.config/yt-dlp
     
     # Red configurada
     ports:
@@ -67,10 +68,9 @@ services:
     # Seguridad
     security_opt:
       - no-new-privileges:true
-    read_only: true
+    read_only: false
     tmpfs:
       - /tmp:noexec,nosuid,size=10M
-      - /home/openmusic/.config/yt-dlp:rw,noexec,nosuid,size=5M
     
     # Logging optimizado
     logging:

@@ -82,25 +82,24 @@ RUN printf '%s\n' \
     'cat > /home/openmusic/.config/yt-dlp/config << "EOF"' \
     '--cookies ~/.config/yt-dlp/cookies.txt' \
     '--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"' \
-    '--extractor-args "youtube:player_client=android_embedded,android_creator,tv_embed,ios"' \
-    '--extractor-args "youtube:player_js_variant=main"' \
-    '--extractor-args "youtube:skip=dash,hls"' \
-    '--extractor-args "youtube:innertube_client=android_creator,android_embedded,tv_embed"' \
-    '--extractor-args "youtube:innertube_host=youtubei.googleapis.com"' \
+    '--extractor-args "youtube:player_client=android_embedded"' \
     '--no-check-certificate' \
-    '--socket-timeout 30' \
-    '--retries 5' \
-    '--retry-sleep 2' \
-    '--fragment-retries 5' \
-    '--http-chunk-size 10M' \
-    '--concurrent-fragments 1' \
-    '--format "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[height<=720]/best"' \
+    '--socket-timeout 15' \
+    '--retries 2' \
+    '--retry-sleep 1' \
+    '--fragment-retries 1' \
+    '--abort-on-unavailable-fragment' \
+    '--http-chunk-size 5M' \
+    '--concurrent-fragments 2' \
+    '--format "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[height<=720]"' \
     '--ignore-errors' \
     '--no-abort-on-error' \
     '--quiet' \
     '--no-warnings' \
     '--geo-bypass' \
     '--force-ipv4' \
+    '--skip-download' \
+    '--flat-playlist' \
     'EOF' \
     'chmod 644 /home/openmusic/.config/yt-dlp/cookies.txt' \
     'chmod 644 /home/openmusic/.config/yt-dlp/config' > /app/setup-yt-dlp.sh && \
