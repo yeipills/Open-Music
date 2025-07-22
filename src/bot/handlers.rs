@@ -177,17 +177,18 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
             .await?;
     }
 
-    // Buscar y agregar a la cola con sistema de fallback completo
+    // Buscar y agregar a la cola con sistema optimizado
     let is_url = query.starts_with("http");
-    let is_playlist = is_url && crate::sources::youtube::YouTubeClient::is_youtube_playlist(query);
+    let is_playlist = is_url && query.contains("playlist");
     
     if is_playlist {
-        // Es una playlist de YouTube - usar cliente completo para playlists
+        // Es una playlist de YouTube
         info!("📋 Detectada playlist de YouTube: {}", query);
         
-        // Fallback al cliente completo de YouTube para playlists
-        let full_youtube_client = crate::sources::youtube::YouTubeClient::new();
-        let playlist_tracks = full_youtube_client.get_playlist(query).await?;
+        // Usar cliente optimizado para playlists
+        let source_manager = crate::sources::SourceManager::new();
+        let ytdlp_client = crate::sources::YtDlpOptimizedClient::new();
+        let playlist_tracks = ytdlp_client.get_playlist(query).await?;
         
         if playlist_tracks.is_empty() {
             anyhow::bail!("La playlist está vacía o no se pudo acceder");
@@ -234,46 +235,27 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
         
     } 
     
-    // Manejar canciones individuales (URL o búsqueda) con fallback completo
+    // Manejar canciones individuales (URL o búsqueda) con sistema optimizado
     let mut track_source = if is_url {
-        // Es una URL directa de video individual - usar sistema de fallback
-        let youtube_client = crate::sources::youtube::YouTubeClient::new();
-        match youtube_client.get_track(query).await {
-            Ok(track) => track,
-            Err(e) => {
-                warn!("❌ YouTube falló para URL: {}, probando Invidious...", e);
-                let invidious_client = crate::sources::invidious::InvidiousClient::new();
-                invidious_client.get_track(query).await?
-            }
-        }
+        // Es una URL directa de video individual
+        let source_manager = crate::sources::SourceManager::new();
+        source_manager.get_track_from_url(query, command.user.id).await?
     } else {
-        // Es una búsqueda - usar el sistema jerárquico inteligente
-        info!("🔍 Buscando canción con sistema jerárquico: {}", query);
+        // Es una búsqueda - usar sistema optimizado
+        info!("🔍 Buscando canción: {}", query);
         
-        let smart_source = crate::sources::smart_source::SmartSource::new();
-        let search_results = smart_source.search_hierarchical(query, 5).await?;
+        let source_manager = crate::sources::SourceManager::new();
+        let search_results = source_manager.search_all(query, 5).await?;
         
-        if search_results.is_empty() {
+        if search_results.is_empty() || search_results[0].tracks.is_empty() {
             anyhow::bail!("No se encontraron resultados para: {}", query);
         }
         
-        // Seleccionar automáticamente el mejor resultado usando heurísticas
-        let best_result = select_best_result(&search_results, query);
+        // Seleccionar automáticamente el mejor resultado (el primero)
+        let best_result = search_results[0].tracks[0].clone();
         info!("✅ Seleccionado automáticamente: {}", best_result.title());
         
-        // Mostrar qué otros resultados estaban disponibles para transparencia
-        if search_results.len() > 1 {
-            info!("🔍 {} resultados encontrados, seleccionando el más relevante", search_results.len());
-            for track in search_results.iter() {
-                if track.title() == best_result.title() {
-                    info!("🎵 [SELECCIONADO] {}", track.title());
-                } else {
-                    info!("🎵 [DISPONIBLE] {}", track.title());
-                }
-            }
-        }
-        
-        best_result
+        best_result.with_requested_by(command.user.id)
     };
 
     // Establecer el usuario que solicitó la canción
@@ -894,7 +876,7 @@ async fn handle_youtube_playlist(
 ) -> Result<()> {
     use serenity::builder::EditInteractionResponse;
     
-    let youtube_client = crate::sources::youtube::YouTubeClient::new();
+    let ytdlp_client = crate::sources::YtDlpOptimizedClient::new();
     
     // Verificar si es una URL de playlist válida
     if !playlist_url.contains("list=") {
@@ -931,7 +913,8 @@ async fn handle_youtube_playlist(
         .await?;
 
     // Obtener tracks de la playlist
-    match youtube_client.get_playlist(playlist_url).await {
+    let ytdlp_client = crate::sources::YtDlpOptimizedClient::new();
+    match ytdlp_client.get_playlist(playlist_url).await {
         Ok(tracks) => {
             if tracks.is_empty() {
                 command

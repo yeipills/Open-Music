@@ -13,6 +13,13 @@ config.json
 settings.json
 CLAUDE.md
 
+# === YT-DLP & COOKIES ===
+config/cookies.txt
+*.cookies
+cookies.txt
+# Permitir config/config (configuración de yt-dlp sin datos sensibles)
+!config/config
+
 # === DATABASE ===
 *.db
 *.sqlite

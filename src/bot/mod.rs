@@ -490,9 +490,10 @@ async fn maintenance_tasks(_config: Arc<Config>, cache: Arc<MusicCache>) {
         // Limpiar caché viejo
         cache.cleanup_old_entries();
 
-        // Actualizar yt-dlp
-        if let Err(e) = crate::sources::youtube::YouTubeClient::update_ytdlp().await {
-            warn!("Error al actualizar yt-dlp: {:?}", e);
+        // Verificar dependencias yt-dlp
+        let source_manager = crate::sources::SourceManager::new();
+        if let Err(e) = source_manager.verify_dependencies().await {
+            warn!("Error verificando dependencias: {:?}", e);
         }
 
         info!("🧹 Tareas de mantenimiento completadas");
