@@ -8,19 +8,11 @@ use tracing::{info, warn, error};
 use super::{MusicSource, TrackSource, SourceType};
 
 /// Cliente optimizado que usa solo yt-dlp + FFmpeg con streaming directo
-pub struct YtDlpOptimizedClient {
-    client: reqwest::Client,
-}
+pub struct YtDlpOptimizedClient;
 
 impl YtDlpOptimizedClient {
     pub fn new() -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
-            .build()
-            .expect("Failed to create HTTP client");
-
-        Self { client }
+        Self
     }
 
     /// Verifica que yt-dlp y ffmpeg estén disponibles
@@ -122,6 +114,7 @@ impl YtDlpOptimizedClient {
     }
 
     /// Extrae video ID de URL de YouTube
+    #[allow(dead_code)]
     pub fn extract_video_id(url: &str) -> Result<String> {
         use url::Url;
         

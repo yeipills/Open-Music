@@ -1,5 +1,46 @@
-target
-.git
+# === BUILD ARTIFACTS ===
+target/
+
+# === GIT ===
+.git/
+.gitignore
+
+# === DOCUMENTATION (no necesaria en container) ===
 *.md
+!README.md
+
+# === ENVIRONMENT ===
 .env*
 !.env.example
+
+# === DEVELOPMENT FILES ===
+.vscode/
+.idea/
+.fleet/
+*.code-workspace
+
+# === CACHE & TEMP ===
+cache/
+data/
+logs/
+temp/
+*.tmp
+*.log
+
+# === TESTING ===
+coverage/
+*.profraw
+
+# === OS SPECIFIC ===
+.DS_Store
+Thumbs.db
+
+# === DOCKER ===
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# === SCRIPTS (algunos pueden ser útiles) ===
+scripts/test_*.sh
+scripts/setup_*.sh
+!scripts/docker-entrypoint.sh

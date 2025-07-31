@@ -186,7 +186,6 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
         info!("📋 Detectada playlist de YouTube: {}", query);
         
         // Usar cliente optimizado para playlists
-        let source_manager = crate::sources::SourceManager::new();
         let ytdlp_client = crate::sources::YtDlpOptimizedClient::new();
         let playlist_tracks = ytdlp_client.get_playlist(query).await?;
         
@@ -876,7 +875,7 @@ async fn handle_youtube_playlist(
 ) -> Result<()> {
     use serenity::builder::EditInteractionResponse;
     
-    let ytdlp_client = crate::sources::YtDlpOptimizedClient::new();
+    let _ytdlp_client = crate::sources::YtDlpOptimizedClient::new();
     
     // Verificar si es una URL de playlist válida
     if !playlist_url.contains("list=") {
@@ -1218,6 +1217,7 @@ async fn handle_metrics(ctx: &Context, command: CommandInteraction, bot: &OpenMu
 
 
 /// Selecciona el mejor resultado basándose en heurísticas de relevancia
+#[allow(dead_code)]
 fn select_best_result(results: &[TrackSource], query: &str) -> TrackSource {
     if results.is_empty() {
         panic!("No se pueden seleccionar resultados de una lista vacía");

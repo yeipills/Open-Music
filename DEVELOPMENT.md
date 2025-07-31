@@ -405,7 +405,7 @@ opus_demo --help
 - [ ] `cargo clippy` - Linter warnings
 - [ ] `cargo test` - All tests pass
 - [ ] `cargo audit` - Security vulnerabilities
-- [ ] Update `CHANGELOG.md` if applicable
+- [ ] Update documentation if applicable
 - [ ] Test with sample Discord server
 
 **Before Release:**
@@ -426,6 +426,6 @@ opus_demo --help
 - **[Tokio Tutorial](https://tokio.rs/tokio/tutorial)**
 
 **Project Links:**
-- Issues: [GitHub Issues](https://github.com/yourusername/open-music-bot/issues)
-- Discussions: [GitHub Discussions](https://github.com/yourusername/open-music-bot/discussions)
-- Wiki: [Project Wiki](https://github.com/yourusername/open-music-bot/wiki)
+- Issues: Crear issues en el repositorio para bugs y mejoras
+- Discussions: Usar issues para discusiones técnicas
+- Documentation: Ver README.md y archivos .md del proyecto
