@@ -44,7 +44,9 @@ RUN apk add --no-cache \
     py3-pip \
     procps \
     su-exec \
+    curl \
     && pip3 install --no-cache-dir --break-system-packages --upgrade yt-dlp \
+    && pip3 install --no-cache-dir --break-system-packages browser-cookie3 \
     && rm -rf /var/cache/apk/* /root/.cache/pip/*
 
 # Crear usuario no-root
@@ -71,34 +73,38 @@ RUN printf '%s\n' \
     'if [ ! -f /home/openmusic/.config/yt-dlp/cookies.txt ]; then' \
     '  cat > /home/openmusic/.config/yt-dlp/cookies.txt << "EOF"' \
     '# Netscape HTTP Cookie File' \
-    '# Cookies mejoradas para evitar bot detection de YouTube - Actualizadas 2025' \
-    '.youtube.com	TRUE	/	FALSE	1767225600	CONSENT	PENDING+999' \
-    '.youtube.com	TRUE	/	TRUE	1767225600	VISITOR_INFO1_LIVE	xGd7kVm2nR8' \
-    '.youtube.com	TRUE	/	FALSE	1767225600	YSC	mK9pL3xZw5A' \
+    '# Cookies anti-bot detection mejoradas - 2025-07-31' \
+    '.youtube.com	TRUE	/	FALSE	1767225600	CONSENT	YES+cb.20210328-17-p0.en+FX+667' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	VISITOR_INFO1_LIVE	Zf3Qk8mP9R2' \
+    '.youtube.com	TRUE	/	FALSE	1767225600	YSC	nB7kL4xW8mD' \
     '.youtube.com	TRUE	/	FALSE	1767225600	GPS	1' \
-    '.youtube.com	TRUE	/	FALSE	1767225600	PREF	f1=50000000&f5=20000&hl=en' \
-    '.google.com	TRUE	/	FALSE	1767225600	NID	735=Z4bK3mN8pR2sL9vT6qH1wE5jF8dA7cX3nP0gY2sM9kL4hB6vN8pR2sL9vT6qH1wE5j' \
-    '.google.com	TRUE	/	FALSE	1767225600	1P_JAR	2025-07-09-18' \
-    '.youtube.com	TRUE	/	TRUE	1767225600	__Secure-1PSID	g.a000rwgK3mN8pR2sL9vT6qH1wE5jF8dA7cX3nP0gY2sM9kL4hB6vN8pR2sL9vT6qH1wE5j' \
-    '.youtube.com	TRUE	/	TRUE	1767225600	__Secure-3PSID	g.a000rwgK3mN8pR2sL9vT6qH1wE5jF8dA7cX3nP0gY2sM9kL4hB6vN8pR2sL9vT6qH1wE5j' \
-    '.youtube.com	TRUE	/	TRUE	1767225600	VISITOR_PRIVACY_METADATA	CgJVUxIEGgAgNw%3D%3D' \
-    '.youtube.com	TRUE	/	FALSE	1767225600	SOCS	CAESNwgDEhZOelV5TWprMk1EY3dPVGMwTXpBM05UZzVNdz09GMCZxrEGGLiEzLEGGICAgKDp5oOTchgCGAE' \
-    '.youtube.com	TRUE	/	TRUE	1767225600	DEVICE_INFO	ChxOelV5TWprMk1EY3dPVGMwTXpBM05UZzVNdz09ELbVy7QGGPz8zLQG' \
+    '.youtube.com	TRUE	/	FALSE	1767225600	PREF	f1=50000000&f5=20000&hl=en&f6=40000000&f7=100' \
+    '.google.com	TRUE	/	FALSE	1767225600	NID	511=M8kP3nR2sL9vT6qH1wE5jF8dA7cX3nP0gY2sM9kL4hB6vN8pR2sL9vT6qH1wE5jX9c' \
+    '.google.com	TRUE	/	FALSE	1767225600	1P_JAR	2025-07-31-07' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	__Secure-1PSID	g.a000lwgK8mP3nR2sL9vT6qH1wE5jF8dA7cX3oP0gY2sM9kL4hB6vN8pR2sL9vT6qX5j' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	__Secure-3PSID	g.a000lwgK8mP3nR2sL9vT6qH1wE5jF8dA7cX3oP0gY2sM9kL4hB6vN8pR2sL9vT6qX5j' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	VISITOR_PRIVACY_METADATA	CgJVUxIEGgAgOQ%3D%3D' \
+    '.youtube.com	TRUE	/	FALSE	1767225600	SOCS	CAISNwgEEhJOelV5TWprMk1EY3dPVGMwTXpBM05UZzVNdz09GLjZxrEGGPiEzLEGGICAgKCp5oOTchgBGAE' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	DEVICE_INFO	ChxOelV5TWprMk1EY3dPVGMwTXpBM05UZzVNdz09ELzVy7QGGLz8zLQG' \
     'EOF' \
     'fi' \
     'if [ ! -f /home/openmusic/.config/yt-dlp/config ]; then' \
     '  cat > /home/openmusic/.config/yt-dlp/config << "EOF"' \
     '--cookies ~/.config/yt-dlp/cookies.txt' \
     '--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"' \
-    '--extractor-args "youtube:player_client=android_embedded"' \
+    '--extractor-args "youtube:player_client=android_creator,web;player_skip=dash,hls"' \
+    '--add-header "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"' \
+    '--add-header "Accept-Language:en-us,en;q=0.5"' \
+    '--add-header "Accept-Encoding:gzip,deflate"' \
+    '--add-header "Accept-Charset:ISO-8859-1,utf-8;q=0.7,*;q=0.7"' \
+    '--add-header "Connection:keep-alive"' \
     '--no-check-certificate' \
-    '--socket-timeout 15' \
-    '--retries 2' \
-    '--retry-sleep 1' \
-    '--fragment-retries 1' \
-    '--abort-on-unavailable-fragment' \
-    '--http-chunk-size 5M' \
-    '--concurrent-fragments 2' \
+    '--socket-timeout 30' \
+    '--retries 5' \
+    '--retry-sleep 3' \
+    '--fragment-retries 3' \
+    '--http-chunk-size 10M' \
+    '--concurrent-fragments 1' \
     '--format "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[height<=720]"' \
     '--ignore-errors' \
     '--no-abort-on-error' \
@@ -108,6 +114,8 @@ RUN printf '%s\n' \
     '--force-ipv4' \
     '--skip-download' \
     '--flat-playlist' \
+    '--sleep-interval 1' \
+    '--max-sleep-interval 3' \
     'EOF' \
     'fi' \
     '# Asegurar permisos correctos en archivos existentes' \
@@ -141,34 +149,38 @@ RUN printf '%s\n' \
     'if [ ! -f /home/openmusic/.config/yt-dlp/cookies.txt ]; then' \
     '  cat > /home/openmusic/.config/yt-dlp/cookies.txt << "EOF"' \
     '# Netscape HTTP Cookie File' \
-    '# Cookies mejoradas para evitar bot detection de YouTube - Actualizadas 2025' \
-    '.youtube.com	TRUE	/	FALSE	1767225600	CONSENT	PENDING+999' \
-    '.youtube.com	TRUE	/	TRUE	1767225600	VISITOR_INFO1_LIVE	xGd7kVm2nR8' \
-    '.youtube.com	TRUE	/	FALSE	1767225600	YSC	mK9pL3xZw5A' \
+    '# Cookies anti-bot detection mejoradas - 2025-07-31' \
+    '.youtube.com	TRUE	/	FALSE	1767225600	CONSENT	YES+cb.20210328-17-p0.en+FX+667' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	VISITOR_INFO1_LIVE	Zf3Qk8mP9R2' \
+    '.youtube.com	TRUE	/	FALSE	1767225600	YSC	nB7kL4xW8mD' \
     '.youtube.com	TRUE	/	FALSE	1767225600	GPS	1' \
-    '.youtube.com	TRUE	/	FALSE	1767225600	PREF	f1=50000000&f5=20000&hl=en' \
-    '.google.com	TRUE	/	FALSE	1767225600	NID	735=Z4bK3mN8pR2sL9vT6qH1wE5jF8dA7cX3nP0gY2sM9kL4hB6vN8pR2sL9vT6qH1wE5j' \
-    '.google.com	TRUE	/	FALSE	1767225600	1P_JAR	2025-07-09-18' \
-    '.youtube.com	TRUE	/	TRUE	1767225600	__Secure-1PSID	g.a000rwgK3mN8pR2sL9vT6qH1wE5jF8dA7cX3nP0gY2sM9kL4hB6vN8pR2sL9vT6qH1wE5j' \
-    '.youtube.com	TRUE	/	TRUE	1767225600	__Secure-3PSID	g.a000rwgK3mN8pR2sL9vT6qH1wE5jF8dA7cX3nP0gY2sM9kL4hB6vN8pR2sL9vT6qH1wE5j' \
-    '.youtube.com	TRUE	/	TRUE	1767225600	VISITOR_PRIVACY_METADATA	CgJVUxIEGgAgNw%3D%3D' \
-    '.youtube.com	TRUE	/	FALSE	1767225600	SOCS	CAESNwgDEhZOelV5TWprMk1EY3dPVGMwTXpBM05UZzVNdz09GMCZxrEGGLiEzLEGGICAgKDp5oOTchgCGAE' \
-    '.youtube.com	TRUE	/	TRUE	1767225600	DEVICE_INFO	ChxOelV5TWprMk1EY3dPVGMwTXpBM05UZzVNdz09ELbVy7QGGPz8zLQG' \
+    '.youtube.com	TRUE	/	FALSE	1767225600	PREF	f1=50000000&f5=20000&hl=en&f6=40000000&f7=100' \
+    '.google.com	TRUE	/	FALSE	1767225600	NID	511=M8kP3nR2sL9vT6qH1wE5jF8dA7cX3nP0gY2sM9kL4hB6vN8pR2sL9vT6qH1wE5jX9c' \
+    '.google.com	TRUE	/	FALSE	1767225600	1P_JAR	2025-07-31-07' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	__Secure-1PSID	g.a000lwgK8mP3nR2sL9vT6qH1wE5jF8dA7cX3oP0gY2sM9kL4hB6vN8pR2sL9vT6qX5j' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	__Secure-3PSID	g.a000lwgK8mP3nR2sL9vT6qH1wE5jF8dA7cX3oP0gY2sM9kL4hB6vN8pR2sL9vT6qX5j' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	VISITOR_PRIVACY_METADATA	CgJVUxIEGgAgOQ%3D%3D' \
+    '.youtube.com	TRUE	/	FALSE	1767225600	SOCS	CAISNwgEEhJOelV5TWprMk1EY3dPVGMwTXpBM05UZzVNdz09GLjZxrEGGPiEzLEGGICAgKCp5oOTchgBGAE' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	DEVICE_INFO	ChxOelV5TWprMk1EY3dPVGMwTXpBM05UZzVNdz09ELzVy7QGGLz8zLQG' \
     'EOF' \
     'fi' \
     'if [ ! -f /home/openmusic/.config/yt-dlp/config ]; then' \
     '  cat > /home/openmusic/.config/yt-dlp/config << "EOF"' \
     '--cookies ~/.config/yt-dlp/cookies.txt' \
     '--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"' \
-    '--extractor-args "youtube:player_client=android_embedded"' \
+    '--extractor-args "youtube:player_client=android_creator,web;player_skip=dash,hls"' \
+    '--add-header "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"' \
+    '--add-header "Accept-Language:en-us,en;q=0.5"' \
+    '--add-header "Accept-Encoding:gzip,deflate"' \
+    '--add-header "Accept-Charset:ISO-8859-1,utf-8;q=0.7,*;q=0.7"' \
+    '--add-header "Connection:keep-alive"' \
     '--no-check-certificate' \
-    '--socket-timeout 15' \
-    '--retries 2' \
-    '--retry-sleep 1' \
-    '--fragment-retries 1' \
-    '--abort-on-unavailable-fragment' \
-    '--http-chunk-size 5M' \
-    '--concurrent-fragments 2' \
+    '--socket-timeout 30' \
+    '--retries 5' \
+    '--retry-sleep 3' \
+    '--fragment-retries 3' \
+    '--http-chunk-size 10M' \
+    '--concurrent-fragments 1' \
     '--format "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[height<=720]"' \
     '--ignore-errors' \
     '--no-abort-on-error' \
@@ -178,6 +190,8 @@ RUN printf '%s\n' \
     '--force-ipv4' \
     '--skip-download' \
     '--flat-playlist' \
+    '--sleep-interval 1' \
+    '--max-sleep-interval 3' \
     'EOF' \
     'fi' \
     '# Asegurar permisos correctos en archivos existentes' \
