@@ -46,7 +46,6 @@ RUN apk add --no-cache \
     su-exec \
     curl \
     && pip3 install --no-cache-dir --break-system-packages --upgrade yt-dlp \
-    && pip3 install --no-cache-dir --break-system-packages browser-cookie3 \
     && rm -rf /var/cache/apk/* /root/.cache/pip/*
 
 # Crear usuario no-root
