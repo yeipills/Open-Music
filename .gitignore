@@ -1,6 +1,5 @@
 # === RUST ===
 /target/
-Cargo.lock
 **/*.rs.bk
 *.pdb
 
@@ -11,7 +10,7 @@ Cargo.lock
 config.toml
 config.json
 settings.json
-CLAUDE.md
+# CLAUDE.md es privado del usuario
 
 # === YT-DLP & COOKIES ===
 config/cookies.txt
@@ -62,7 +61,6 @@ ehthumbs.db
 Thumbs.db
 
 # === DOCKER ===
-.dockerignore
 
 # === BACKUP FILES ===
 *.bak
@@ -86,3 +84,17 @@ lcov.info
 # === DOCUMENTATION DRAFTS ===
 *.draft.md
 NOTES.md
+TODO.md
+ROADMAP.draft.md
+
+# === SECURITY ===
+*.key
+*.pem
+*.p12
+secrets/
+.secrets/
+
+# === DEVELOPMENT TOOLS ===
+.fleet/
+*.code-workspace
+.history/

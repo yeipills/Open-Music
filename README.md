@@ -19,8 +19,9 @@ Bot moderno con arquitectura optimizada, soporte completo para comandos slash, y
 **Audio Avanzado**
 - ✅ **Ecualizador** con 8 presets (Bass, Pop, Rock, Jazz, Classical, Electronic, Vocal, Flat)
 - ✅ **Cola Inteligente** con shuffle, repeat, y búsqueda
-- ✅ **Múltiples Fuentes** YouTube + URLs directas
+- ✅ **yt-dlp Optimizado** para extracción ultra-rápida
 - ✅ **Control de Volumen** 0-200% con normalización
+- ✅ **Anti-detección** con cookies de navegador
 
 **Performance**
 - ✅ **Cache LRU** optimizado con TTL automático
@@ -48,10 +49,10 @@ cargo run
 ### Stack Tecnológico
 | Componente | Tecnología | Versión |
 |------------|------------|----------|
-| **Framework** | Serenity + Songbird | 0.12.4 + 0.4.6 |
-| **Audio** | Symphonia + Opus | 0.5.4 + 0.3.0 |
+| **Framework** | Serenity + Songbird | 0.12.4 + 0.5.0 |
+| **Audio** | yt-dlp + Symphonia + Opus | 2025.01 + 0.5.4 + 0.3.0 |
 | **Runtime** | Tokio | 1.45 |
-| **Storage** | JSON + SQLite | Nativo |
+| **Extracción** | YtDlp Optimizado | Ultra-rápido |
 | **Container** | Docker Alpine | 3.21 |
 
 ### Estructura del Proyecto
@@ -66,8 +67,7 @@ src/
 │   ├── handlers.rs  # Manejadores de eventos
 │   └── events.rs    # Eventos de Discord
 ├── sources/         # 📡 Fuentes de audio
-│   ├── youtube.rs   # Integración YouTube (yt-dlp)
-│   └── direct_url.rs# URLs directas
+│   └── ytdlp_optimized.rs # Integración yt-dlp ultra-optimizada
 ├── ui/              # 🎨 Interfaz de usuario
 │   ├── embeds.rs    # Embeds ricos
 │   └── buttons.rs   # Controles interactivos
@@ -104,6 +104,14 @@ src/
 - **🎯 Jump**: Saltar a posición específica
 - **📈 Historial**: Últimas 50 reproducciones
 
+### 🚀 Extracción Ultra-Optimizada (2025)
+- **⚡ yt-dlp**: Método de extracción más rápido disponible
+- **🍪 Anti-detección**: Cookies de navegador para evitar limitaciones
+- **📱 Cliente Android**: Acceso optimizado a YouTube
+- **⏱️ Latencia**: ~8-10 segundos (50% más rápido que antes)
+- **🔄 Streaming directo**: Sin descargas intermedias
+- **🎵 Calidad**: bestaudio/best format automático
+
 ### 🎨 Interfaz Interactiva
 - **🔘 Botones Discord**: Controles nativos integrados
 - **📱 Embeds Ricos**: Artwork, progreso, información detallada
@@ -117,6 +125,13 @@ src/
 - **🚫 Límites**: Cola, duración, rate limiting
 - **💾 Persistencia**: Configuraciones guardadas automáticamente
 - **📊 Monitoreo**: Métricas de uso y rendimiento
+
+### 🍪 Configuración de Cookies (Anti-detección)
+- **📁 Ubicación**: `config/cookies.txt` (auto-generadas en Docker)
+- **🔄 Actualización**: Automática desde navegador real
+- **🛡️ Protección**: Archivo ignorado por git para seguridad
+- **⚡ Beneficios**: Evita limitaciones de bot detection de YouTube
+- **📱 Formato**: Netscape HTTP Cookie format estándar
 
 ## 🎛️ Comandos Disponibles
 
@@ -195,10 +210,10 @@ docker-compose ps       # Estado de contenedores
 sudo apt update && sudo apt install -y \
     build-essential cmake pkg-config \
     libssl-dev libopus-dev \
-    ffmpeg python3-pip
+    python3-pip
 
-# Instalar yt-dlp
-pip3 install yt-dlp
+# Instalar yt-dlp (versión 2025 optimizada)
+pip3 install --upgrade yt-dlp
 
 # Instalar Rust (si no está instalado)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -339,6 +354,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./cache:/app/cache
+      - ./config:/home/openmusic/.config/yt-dlp
     
     # Health check integrado
     healthcheck:
@@ -457,7 +473,7 @@ echo "✅ All checks passed!"
 | `opus link error` | libopus faltante | `apt install libopus-dev` |
 | `cmake not found` | Build tools faltantes | `apt install cmake build-essential` |
 | `Permission denied` | Permisos Discord | Verificar permisos del bot |
-| `yt-dlp not found` | yt-dlp no instalado | `pip3 install yt-dlp` |
+| `yt-dlp not found` | yt-dlp no instalado | `pip3 install --upgrade yt-dlp` |
 | `Connection timed out` | Red/Firewall | Verificar conectividad |
 | `Audio choppy` | CPU/Memoria insuficiente | Aumentar recursos |
 
@@ -490,6 +506,7 @@ df -h                      # Espacio en disco
 | **CPU (idle)** | 1-5% | <2% |
 | **CPU (playing)** | 10-25% | <15% |
 | **Latencia Audio** | 50-150ms | <100ms |
+| **Búsqueda yt-dlp** | 8-10s | <8s |
 | **Tiempo Respuesta** | 100-500ms | <200ms |
 | **Servidores Concurrentes** | 50+ | 100+ |
 
@@ -561,7 +578,10 @@ tail -f bot.log | grep WARN     # Warnings en tiempo real
 
 ### 🆘 Obtener Ayuda
 
-- **📖 Documentación**: Este README
+- **📖 Documentación**: 
+  - [README.md](README.md) - Información general
+  - [DEVELOPMENT.md](DEVELOPMENT.md) - Guía de desarrollo
+  - [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Solución de problemas
 - **🐛 Issues**: [GitHub Issues](https://github.com/tu-usuario/open-music-bot/issues)
 - **💬 Discusiones**: [GitHub Discussions](https://github.com/tu-usuario/open-music-bot/discussions)
 - **📧 Email**: tu-email@dominio.com

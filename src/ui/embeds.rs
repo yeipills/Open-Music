@@ -896,6 +896,7 @@ fn format_duration(duration: Duration) -> String {
 }
 
 /// Crea un embed para mostrar opciones de selección de canciones
+#[allow(dead_code)]
 pub fn create_selection_embed(results: &[crate::sources::TrackSource]) -> CreateEmbed {
     let mut description = String::new();
     description.push_str("🎵 **Selecciona una canción:**\n\n");
@@ -943,6 +944,7 @@ pub fn create_warning_embed(title: &str, description: &str) -> CreateEmbed {
 }
 
 /// Crea componentes de selección para múltiples resultados
+#[allow(dead_code)]
 pub fn create_selection_components(results: &[crate::sources::TrackSource]) -> Vec<CreateActionRow> {
     use serenity::builder::{CreateSelectMenu, CreateSelectMenuOption};
     

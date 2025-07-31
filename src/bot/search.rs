@@ -12,7 +12,7 @@ use std::sync::LazyLock;
 
 use crate::{
     ui::embeds::{colors, create_success_embed, create_error_embed},
-    sources::{TrackSource, MusicSource},
+    sources::TrackSource,
     bot::OpenMusicBot,
 };
 use std::time::Duration;

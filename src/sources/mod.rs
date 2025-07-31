@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use serenity::model::id::UserId;
 use songbird::input::Input;
 use std::time::Duration;
-use tracing::{info, warn, error};
+use tracing::info;
 
 pub use ytdlp_optimized::YtDlpOptimizedClient;
 
