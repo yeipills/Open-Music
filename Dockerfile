@@ -43,6 +43,7 @@ RUN apk add --no-cache \
     python3 \
     py3-pip \
     procps \
+    su-exec \
     && pip3 install --no-cache-dir --break-system-packages --upgrade yt-dlp \
     && rm -rf /var/cache/apk/* /root/.cache/pip/*
 
@@ -55,15 +56,20 @@ WORKDIR /app
 # Copiar binario compilado
 COPY --from=builder /build/target/release/open-music /app/
 
-# Crear directorios necesarios incluyendo yt-dlp config
-RUN mkdir -p /app/data /app/cache /home/openmusic/.config && \
-    chown -R openmusic:openmusic /app /home/openmusic/.config
+# Crear directorios necesarios
+RUN mkdir -p /app/data /app/cache && \
+    chown -R openmusic:openmusic /app
 
 # Crear script de configuración de yt-dlp que se ejecutará en runtime
 RUN printf '%s\n' \
     '#!/bin/sh' \
+    'set -e' \
+    '# Crear directorio con permisos correctos' \
     'mkdir -p /home/openmusic/.config/yt-dlp' \
-    'cat > /home/openmusic/.config/yt-dlp/cookies.txt << "EOF"' \
+    'chown -R openmusic:openmusic /home/openmusic/.config' \
+    '# Solo crear archivos si no existen (para evitar sobrescribir volúmenes montados)' \
+    'if [ ! -f /home/openmusic/.config/yt-dlp/cookies.txt ]; then' \
+    '  cat > /home/openmusic/.config/yt-dlp/cookies.txt << "EOF"' \
     '# Netscape HTTP Cookie File' \
     '# Cookies mejoradas para evitar bot detection de YouTube - Actualizadas 2025' \
     '.youtube.com	TRUE	/	FALSE	1767225600	CONSENT	PENDING+999' \
@@ -79,7 +85,9 @@ RUN printf '%s\n' \
     '.youtube.com	TRUE	/	FALSE	1767225600	SOCS	CAESNwgDEhZOelV5TWprMk1EY3dPVGMwTXpBM05UZzVNdz09GMCZxrEGGLiEzLEGGICAgKDp5oOTchgCGAE' \
     '.youtube.com	TRUE	/	TRUE	1767225600	DEVICE_INFO	ChxOelV5TWprMk1EY3dPVGMwTXpBM05UZzVNdz09ELbVy7QGGPz8zLQG' \
     'EOF' \
-    'cat > /home/openmusic/.config/yt-dlp/config << "EOF"' \
+    'fi' \
+    'if [ ! -f /home/openmusic/.config/yt-dlp/config ]; then' \
+    '  cat > /home/openmusic/.config/yt-dlp/config << "EOF"' \
     '--cookies ~/.config/yt-dlp/cookies.txt' \
     '--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"' \
     '--extractor-args "youtube:player_client=android_embedded"' \
@@ -101,11 +109,12 @@ RUN printf '%s\n' \
     '--skip-download' \
     '--flat-playlist' \
     'EOF' \
-    'chmod 644 /home/openmusic/.config/yt-dlp/cookies.txt' \
-    'chmod 644 /home/openmusic/.config/yt-dlp/config' > /app/setup-yt-dlp.sh && \
+    'fi' \
+    '# Asegurar permisos correctos en archivos existentes' \
+    'chown -R openmusic:openmusic /home/openmusic/.config/yt-dlp' \
+    'chmod 644 /home/openmusic/.config/yt-dlp/cookies.txt 2>/dev/null || true' \
+    'chmod 644 /home/openmusic/.config/yt-dlp/config 2>/dev/null || true' > /app/setup-yt-dlp.sh && \
     chmod +x /app/setup-yt-dlp.sh
-
-USER openmusic
 
 # Variables de entorno para optimización y autenticación
 ENV RUST_LOG=info \
@@ -115,8 +124,69 @@ ENV RUST_LOG=info \
     YTDLP_OPTS="--user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' --extractor-args 'youtube:player_client=android,web' --no-check-certificate --socket-timeout 30 --retries 3"
 
 EXPOSE 8080
+
 # Health check básico
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD pgrep open-music > /dev/null || exit 1
 
-ENTRYPOINT ["/bin/sh", "-c", "/app/setup-yt-dlp.sh && /app/open-music"]
+# Script de inicio que maneja permisos correctamente
+RUN printf '%s\n' \
+    '#!/bin/sh' \
+    'set -e' \
+    '# Crear directorio con permisos correctos' \
+    'mkdir -p /home/openmusic/.config/yt-dlp' \
+    '# Corregir permisos del volumen montado si es necesario' \
+    'chown -R openmusic:openmusic /home/openmusic/.config /app/data /app/cache 2>/dev/null || true' \
+    '# Solo crear archivos si no existen' \
+    'if [ ! -f /home/openmusic/.config/yt-dlp/cookies.txt ]; then' \
+    '  cat > /home/openmusic/.config/yt-dlp/cookies.txt << "EOF"' \
+    '# Netscape HTTP Cookie File' \
+    '# Cookies mejoradas para evitar bot detection de YouTube - Actualizadas 2025' \
+    '.youtube.com	TRUE	/	FALSE	1767225600	CONSENT	PENDING+999' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	VISITOR_INFO1_LIVE	xGd7kVm2nR8' \
+    '.youtube.com	TRUE	/	FALSE	1767225600	YSC	mK9pL3xZw5A' \
+    '.youtube.com	TRUE	/	FALSE	1767225600	GPS	1' \
+    '.youtube.com	TRUE	/	FALSE	1767225600	PREF	f1=50000000&f5=20000&hl=en' \
+    '.google.com	TRUE	/	FALSE	1767225600	NID	735=Z4bK3mN8pR2sL9vT6qH1wE5jF8dA7cX3nP0gY2sM9kL4hB6vN8pR2sL9vT6qH1wE5j' \
+    '.google.com	TRUE	/	FALSE	1767225600	1P_JAR	2025-07-09-18' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	__Secure-1PSID	g.a000rwgK3mN8pR2sL9vT6qH1wE5jF8dA7cX3nP0gY2sM9kL4hB6vN8pR2sL9vT6qH1wE5j' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	__Secure-3PSID	g.a000rwgK3mN8pR2sL9vT6qH1wE5jF8dA7cX3nP0gY2sM9kL4hB6vN8pR2sL9vT6qH1wE5j' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	VISITOR_PRIVACY_METADATA	CgJVUxIEGgAgNw%3D%3D' \
+    '.youtube.com	TRUE	/	FALSE	1767225600	SOCS	CAESNwgDEhZOelV5TWprMk1EY3dPVGMwTXpBM05UZzVNdz09GMCZxrEGGLiEzLEGGICAgKDp5oOTchgCGAE' \
+    '.youtube.com	TRUE	/	TRUE	1767225600	DEVICE_INFO	ChxOelV5TWprMk1EY3dPVGMwTXpBM05UZzVNdz09ELbVy7QGGPz8zLQG' \
+    'EOF' \
+    'fi' \
+    'if [ ! -f /home/openmusic/.config/yt-dlp/config ]; then' \
+    '  cat > /home/openmusic/.config/yt-dlp/config << "EOF"' \
+    '--cookies ~/.config/yt-dlp/cookies.txt' \
+    '--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"' \
+    '--extractor-args "youtube:player_client=android_embedded"' \
+    '--no-check-certificate' \
+    '--socket-timeout 15' \
+    '--retries 2' \
+    '--retry-sleep 1' \
+    '--fragment-retries 1' \
+    '--abort-on-unavailable-fragment' \
+    '--http-chunk-size 5M' \
+    '--concurrent-fragments 2' \
+    '--format "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[height<=720]"' \
+    '--ignore-errors' \
+    '--no-abort-on-error' \
+    '--quiet' \
+    '--no-warnings' \
+    '--geo-bypass' \
+    '--force-ipv4' \
+    '--skip-download' \
+    '--flat-playlist' \
+    'EOF' \
+    'fi' \
+    '# Asegurar permisos correctos en archivos existentes' \
+    'chown -R openmusic:openmusic /home/openmusic/.config/yt-dlp 2>/dev/null || true' \
+    'chmod 755 /home/openmusic/.config/yt-dlp 2>/dev/null || true' \
+    'chmod 644 /home/openmusic/.config/yt-dlp/cookies.txt 2>/dev/null || true' \
+    'chmod 644 /home/openmusic/.config/yt-dlp/config 2>/dev/null || true' \
+    '# Cambiar al usuario openmusic y ejecutar la aplicación' \
+    'exec su-exec openmusic:openmusic /app/open-music' > /app/start.sh && \
+    chmod +x /app/start.sh
+
+ENTRYPOINT ["/app/start.sh"]
