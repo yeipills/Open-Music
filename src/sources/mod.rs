@@ -123,8 +123,18 @@ impl TrackSource {
     pub async fn get_input(&self) -> Result<Input> {
         info!("🎵 Creando input optimizado para: {}", self.title);
         
-        // Usar el nuevo método optimizado
-        self.get_optimized_input().await
+        // Intentar el método optimizado primero
+        match self.get_optimized_input().await {
+            Ok(input) => {
+                info!("✅ Input optimizado exitoso para: {}", self.title);
+                Ok(input)
+            }
+            Err(e) => {
+                tracing::warn!("⚠️ Método optimizado falló: {:?}, usando fallback...", e);
+                // Usar método simple como fallback
+                self.get_simple_input().await
+            }
+        }
     }
 
 }
