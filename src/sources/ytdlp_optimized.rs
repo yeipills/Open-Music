@@ -360,34 +360,14 @@ impl TrackSource {
         .find(|path| std::path::Path::new(path).exists())
         .map(|path| format!("--cookies={}", path));
 
-        // Configurar yt-dlp con opciones ultra-optimizadas para 2025
-        let mut ytdlp_args = vec![
-            "--format".to_string(), 
-            "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[height<=720]".to_string(),
-            "--user-agent".to_string(),
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36".to_string(),
-            "--extractor-args".to_string(),
-            "youtube:player_client=android_embedded".to_string(), // Solo el cliente más rápido
-            "--no-check-certificate".to_string(),
-            "--socket-timeout".to_string(), "15".to_string(), // Reducido
-            "--retries".to_string(), "2".to_string(), // Reducido
-            "--fragment-retries".to_string(), "1".to_string(), // Nuevo
-            "--abort-on-unavailable-fragment".to_string(), // Nuevo
-            "--no-playlist".to_string(),
-            "--quiet".to_string(),
-            "--no-warnings".to_string(),
-            "--geo-bypass".to_string(),
-            "--force-ipv4".to_string(),
-            "--http-chunk-size".to_string(), "5M".to_string(), // Nuevo: chunks más pequeños
-            "--concurrent-fragments".to_string(), "2".to_string(), // Nuevo: descarga paralela limitada
-        ];
-
-        // Agregar cookies si están disponibles
+        // Configurar variables de entorno que songbird respeta
         if let Some(cookies) = cookies_option {
-            ytdlp_args.push(cookies);
+            std::env::set_var("YTDL_COOKIES", cookies.replace("--cookies=", ""));
         }
-
-        ytdlp_args.push(self.url());
+        
+        // Configurar opciones básicas via variables de entorno
+        std::env::set_var("YTDL_OPTIONS", "--format=bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best --no-playlist --quiet --no-warnings --geo-bypass --socket-timeout=20 --retries=3");
+        std::env::set_var("YTDL_USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
 
         // Crear el cliente HTTP optimizado para songbird
         let client = reqwest::Client::builder()
@@ -398,14 +378,42 @@ impl TrackSource {
             .pool_max_idle_per_host(4) // Nuevo: máximo idle por host
             .build()?;
 
-        // Configurar variables de entorno optimizadas para yt-dlp
-        std::env::set_var("YTDLP_OPTS", ytdlp_args.join(" "));
+        // CAMBIO CRÍTICO: Usar songbird con configuración estándar
+        // songbird maneja internamente los argumentos de yt-dlp
+        let ytdl = songbird::input::YoutubeDl::new(client, self.url());
+        
+        // Verificar que el input sea válido antes de proceder
+        info!("🔍 Verificando que el input sea válido...");
+        let input = Input::from(ytdl);
+        
+        // Log adicional para debugging
+        info!("🎵 Input creado con configuración optimizada");
+        info!("🔗 URL procesada: {}", self.url());
 
-        // Crear input con songbird usando yt-dlp optimizado
+        info!("⚡ Input ultrarrápido creado para: {}", self.title());
+        Ok(input)
+    }
+
+    /// Método de fallback más simple si el optimizado falla
+    pub async fn get_simple_input(&self) -> Result<Input> {
+        info!("🔄 Usando método simple de fallback para: {}", self.title());
+        
+        // Verificar que sea URL de YouTube
+        if !YtDlpOptimizedClient::is_youtube_url(&self.url()) {
+            anyhow::bail!("Solo se soportan URLs de YouTube");
+        }
+
+        // Crear cliente HTTP básico
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .user_agent("Mozilla/5.0 (compatible; Discord Music Bot)")
+            .build()?;
+
+        // Usar configuración mínima y confiable
         let ytdl = songbird::input::YoutubeDl::new(client, self.url());
         let input = Input::from(ytdl);
 
-        info!("⚡ Input ultrarrápido creado para: {}", self.title());
+        info!("✅ Input simple creado para: {}", self.title());
         Ok(input)
     }
 }
