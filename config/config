@@ -1,20 +1,55 @@
+# Configuración optimizada yt-dlp para Open Music Bot - 2025
+
+# Cookies y autenticación
 --cookies ~/.config/yt-dlp/cookies.txt
+
+# User agent moderno
 --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
---extractor-args "youtube:player_client=android_embedded"
---no-check-certificate
---socket-timeout 15
---retries 2
---retry-sleep 1
---fragment-retries 1
---abort-on-unavailable-fragment
---http-chunk-size 5M
---concurrent-fragments 2
+
+# Configuración de extractor para evitar detección de bots
+--extractor-args "youtube:player_client=android_creator,web,android_embedded;player_skip=dash,hls"
+
+# Headers HTTP optimizados
+--add-header "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+--add-header "Accept-Language:en-US,en;q=0.9"
+--add-header "Accept-Encoding:gzip, deflate, br"
+--add-header "DNT:1"
+--add-header "Connection:keep-alive"
+--add-header "Upgrade-Insecure-Requests:1"
+--add-header "Sec-Fetch-Dest:document"
+--add-header "Sec-Fetch-Mode:navigate"
+--add-header "Sec-Fetch-Site:none"
+
+# Configuración de red y reintentos
+--socket-timeout 45
+--retries 8
+--retry-sleep 5
+--fragment-retries 8
+--http-chunk-size 10M
+--concurrent-fragments 1
+
+# Formatos de audio preferidos
 --format "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[height<=720]"
+
+# Opciones de bypass y compatibilidad
+--no-check-certificate
+--geo-bypass
+--geo-bypass-country US
+--force-ipv4
+
+# Configuraciones para playlists y errores
+--no-playlist
 --ignore-errors
 --no-abort-on-error
+--continue
+
+# Configuración de output
 --quiet
 --no-warnings
---geo-bypass
---force-ipv4
---skip-download
---flat-playlist
+--no-progress
+
+# Configuración de velocidad
+--sleep-interval 1
+--max-sleep-interval 3
+--sleep-requests 1
+--sleep-subtitles 1

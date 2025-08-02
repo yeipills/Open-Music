@@ -365,9 +365,27 @@ impl TrackSource {
             std::env::set_var("YTDL_COOKIES", cookies.replace("--cookies=", ""));
         }
         
-        // Configurar opciones básicas via variables de entorno
-        std::env::set_var("YTDL_OPTIONS", "--format=bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best --no-playlist --quiet --no-warnings --geo-bypass --socket-timeout=20 --retries=3");
-        std::env::set_var("YTDL_USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+        // Configurar opciones robustas contra detección de bots (2025)
+        std::env::set_var("YTDL_OPTIONS", 
+            "--format=bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best \
+             --extractor-args=youtube:player_client=android_creator,web;player_skip=dash,hls \
+             --user-agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36' \
+             --add-header='Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' \
+             --add-header='Accept-Language:en-us,en;q=0.5' \
+             --add-header='Accept-Encoding:gzip,deflate' \
+             --add-header='Connection:keep-alive' \
+             --no-check-certificate \
+             --no-playlist \
+             --quiet \
+             --no-warnings \
+             --geo-bypass \
+             --socket-timeout=30 \
+             --retries=5 \
+             --retry-sleep=3 \
+             --fragment-retries=5"
+        );
+        
+        std::env::set_var("YTDL_USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
 
         // Crear el cliente HTTP optimizado para songbird
         let client = reqwest::Client::builder()
@@ -403,10 +421,26 @@ impl TrackSource {
             anyhow::bail!("Solo se soportan URLs de YouTube");
         }
 
-        // Crear cliente HTTP básico
+        // Configurar opciones específicas para fallback sin cookies
+        std::env::set_var("YTDL_OPTIONS", 
+            "--format=bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best \
+             --extractor-args=youtube:player_client=android_embedded,android_creator \
+             --user-agent='Mozilla/5.0 (Linux; Android 12; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36' \
+             --no-check-certificate \
+             --no-playlist \
+             --quiet \
+             --ignore-errors \
+             --no-abort-on-error \
+             --geo-bypass \
+             --socket-timeout=45 \
+             --retries=8 \
+             --retry-sleep=5"
+        );
+
+        // Crear cliente HTTP básico con Android User-Agent
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .user_agent("Mozilla/5.0 (compatible; Discord Music Bot)")
+            .timeout(Duration::from_secs(45))
+            .user_agent("Mozilla/5.0 (Linux; Android 12; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
             .build()?;
 
         // Usar configuración mínima y confiable
