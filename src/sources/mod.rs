@@ -130,11 +130,48 @@ impl TrackSource {
                 Ok(input)
             }
             Err(e) => {
-                tracing::warn!("⚠️ Método optimizado falló: {:?}, usando fallback...", e);
-                // Usar método simple como fallback
-                self.get_simple_input().await
+                tracing::warn!("⚠️ Método optimizado falló: {:?}, probando fallback 1...", e);
+                
+                // Intentar método simple como fallback
+                match self.get_simple_input().await {
+                    Ok(input) => {
+                        info!("✅ Input fallback 1 exitoso para: {}", self.title);
+                        Ok(input)
+                    }
+                    Err(e2) => {
+                        tracing::warn!("⚠️ Fallback 1 falló: {:?}, probando fallback 2...", e2);
+                        
+                        // Como último recurso, intentar con configuración mínima
+                        self.get_minimal_input().await
+                    }
+                }
             }
         }
+    }
+
+    /// Método de último recurso con configuración ultra-mínima
+    pub async fn get_minimal_input(&self) -> Result<Input> {
+        info!("🆘 Usando método mínimo de último recurso para: {}", self.title);
+        
+        // Verificar que sea URL de YouTube
+        if !self.url().contains("youtube.com") && !self.url().contains("youtu.be") {
+            anyhow::bail!("Solo se soportan URLs de YouTube");
+        }
+
+        // Configuración ultra básica sin headers especiales
+        std::env::set_var("YTDL_OPTIONS", "--format=bestaudio --no-check-certificate --quiet --ignore-errors");
+        
+        // Cliente HTTP ultra simple
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .user_agent("Mozilla/5.0")
+            .build()?;
+
+        let ytdl = songbird::input::YoutubeDl::new(client, self.url());
+        let input = Input::from(ytdl);
+
+        info!("✅ Input mínimo creado para: {}", self.title);
+        Ok(input)
     }
 
 }

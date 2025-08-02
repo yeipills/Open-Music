@@ -421,26 +421,31 @@ impl TrackSource {
             anyhow::bail!("Solo se soportan URLs de YouTube");
         }
 
-        // Configurar opciones específicas para fallback sin cookies
+        // Configurar opciones específicas para fallback sin cookies (2025 anti-bot)
         std::env::set_var("YTDL_OPTIONS", 
-            "--format=bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best \
-             --extractor-args=youtube:player_client=android_embedded,android_creator \
-             --user-agent='Mozilla/5.0 (Linux; Android 12; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36' \
+            "--format=bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/18/17/36/5/43/34/35/44/45/46 \
+             --extractor-args='youtube:player_client=android,android_embedded,android_creator,android_music,ios,ios_embedded,ios_creator,ios_music,mweb,web_embedded,web_creator,web_music,web_safari' \
+             --user-agent='com.google.android.youtube/19.09.37 (Linux; U; Android 13; SM-G998B Build/TP1A.220624.014) gzip' \
+             --add-header='X-YouTube-Client-Name: 3' \
+             --add-header='X-YouTube-Client-Version: 19.09.37' \
+             --add-header='Origin: https://www.youtube.com' \
+             --add-header='Referer: https://www.youtube.com/' \
              --no-check-certificate \
              --no-playlist \
              --quiet \
              --ignore-errors \
              --no-abort-on-error \
              --geo-bypass \
-             --socket-timeout=45 \
-             --retries=8 \
-             --retry-sleep=5"
+             --force-ipv4 \
+             --socket-timeout=60 \
+             --retries=10 \
+             --retry-sleep=3"
         );
 
-        // Crear cliente HTTP básico con Android User-Agent
+        // Crear cliente HTTP básico con Android YouTube App User-Agent
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(45))
-            .user_agent("Mozilla/5.0 (Linux; Android 12; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
+            .timeout(Duration::from_secs(60))
+            .user_agent("com.google.android.youtube/19.09.37 (Linux; U; Android 13; SM-G998B Build/TP1A.220624.014) gzip")
             .build()?;
 
         // Usar configuración mínima y confiable
