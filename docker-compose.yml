@@ -1,6 +1,25 @@
 # docker-compose.yml - Configuración optimizada Open Music Bot
 
 services:
+  lavalink:
+    image: fredboat/lavalink:4.0.8
+    container_name: lavalink
+    restart: unless-stopped
+    ports:
+      - "2333:2333"
+    volumes:
+      - ./lavalink-config/application.yml:/opt/Lavalink/application.yml:ro
+    environment:
+      - _JAVA_OPTIONS=-Xmx512m
+      - SERVER_PORT=2333
+      - LAVALINK_SERVER_PASSWORD=youshallnotpass
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 2333 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
   open-music:
     build:
       context: .
@@ -41,12 +60,20 @@ services:
       - ENABLE_EQUALIZER=true
       - ENABLE_AUTOPLAY=false
       
-      # YouTube API
+      # Lavalink
+      - LAVALINK_HOST=lavalink
+      - LAVALINK_PORT=2333
+      - LAVALINK_PASSWORD=youshallnotpass
+      
+      # YouTube API (opcional con Lavalink)
       - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
       
       # Sistema
       - RUST_LOG=info,open_music=debug
       - RUST_BACKTRACE=1
+    
+    depends_on:
+      - lavalink
     
     volumes:
       - ./data:/app/data

@@ -13,6 +13,7 @@ mod sources;
 mod storage;
 mod ui;
 
+use crate::audio::lavalink_simple::LavalinkManager;
 use crate::bot::OpenMusicBot;
 use crate::cache::MusicCache;
 use crate::config::Config;
@@ -69,6 +70,26 @@ async fn main() -> Result<()> {
         .event_handler(handler)
         .register_songbird()
         .await?;
+
+    // Inicializar Lavalink
+    info!("🎼 Inicializando Lavalink...");
+    let user_id = client.http.get_current_user().await?.id;
+    
+    match LavalinkManager::new(&config, user_id).await {
+        Ok(lavalink) => {
+            info!("✅ Lavalink inicializado exitosamente");
+            
+            // Insertar Lavalink en el contexto del cliente
+            {
+                let mut data = client.data.write().await;
+                data.insert::<LavalinkManager>(Arc::new(lavalink));
+            }
+        }
+        Err(e) => {
+            error!("❌ Error al inicializar Lavalink: {:?}", e);
+            info!("🔄 Continuando sin Lavalink - usando yt-dlp directo como fallback");
+        }
+    }
 
     // Manejar shutdown graceful
     tokio::spawn(async move {

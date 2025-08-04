@@ -60,7 +60,10 @@ chrono = { version = "0.4", features = ["serde"] }
 humantime = "2.2"
 num-format = "0.4"
 
-# Integración con yt-dlp - Versiones mejoradas
+# Lavalink será implementado posteriormente con la API correcta
+# lavalink-rs = "0.14.1"
+
+# Integración con yt-dlp - Versiones mejoradas (mantenido como fallback)
 async-process = "2.3.1"
 regex = "1.11.1"
 urlencoding = "2.1.3"
