@@ -6,7 +6,7 @@ use serenity::{
     },
     prelude::Context,
 };
-use tracing::{error, info, warn};
+use tracing::{info};
 
 use crate::audio::lavalink_simple::LavalinkManager;
 use crate::ui::embeds::{create_success_embed, create_error_embed, create_info_embed};

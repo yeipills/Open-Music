@@ -2,7 +2,7 @@ use anyhow::Result;
 use serenity::model::id::{GuildId, UserId};
 use serenity::prelude::*;
 use std::sync::Arc;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use crate::config::Config;
 

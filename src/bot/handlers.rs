@@ -10,8 +10,8 @@ use serenity::{
 use tracing::{info, warn};
 
 use crate::{
-    audio::lavalink_simple::LavalinkManager,
-    bot::{lavalink_simple_commands, OpenMusicBot},
+    audio::{hybrid_manager::HybridAudioManager},
+    bot::{hybrid_commands, OpenMusicBot},
     sources::{MusicSource, TrackSource, SourceType},
     ui::{buttons, embeds},
 };
@@ -31,85 +31,80 @@ pub async fn handle_command(
         command.data.name, command.user.name, guild_id
     );
 
-    // Verificar si Lavalink está disponible
-    let has_lavalink = {
+    // Verificar si el sistema híbrido está disponible
+    let has_hybrid = {
         let data_read = ctx.data.read().await;
-        data_read.get::<LavalinkManager>().is_some()
+        data_read.get::<HybridAudioManager>().is_some()
     };
 
     match command.data.name.as_str() {
         "play" => {
-            if has_lavalink {
+            if has_hybrid {
                 let query = command
                     .data
                     .options
                     .first()
                     .and_then(|opt| opt.value.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Consulta requerida"))?;
-                lavalink_simple_commands::handle_lavalink_play(ctx, &command, query).await?
+                hybrid_commands::handle_hybrid_play(ctx, &command, query).await?
             } else {
                 handle_play(ctx, command, bot).await?
             }
         }
         "pause" => {
-            if has_lavalink {
-                lavalink_simple_commands::handle_lavalink_pause(ctx, &command).await?
+            if has_hybrid {
+                hybrid_commands::handle_hybrid_pause(ctx, &command).await?
             } else {
                 handle_pause(ctx, command, bot).await?
             }
         }
         "resume" => {
-            if has_lavalink {
-                lavalink_simple_commands::handle_lavalink_resume(ctx, &command).await?
+            if has_hybrid {
+                hybrid_commands::handle_hybrid_resume(ctx, &command).await?
             } else {
                 handle_resume(ctx, command, bot).await?
             }
         }
         "skip" => {
-            if has_lavalink {
-                lavalink_simple_commands::handle_lavalink_skip(ctx, &command).await?
+            if has_hybrid {
+                hybrid_commands::handle_hybrid_skip(ctx, &command).await?
             } else {
                 handle_skip(ctx, command, bot).await?
             }
         }
         "stop" => {
-            if has_lavalink {
-                lavalink_simple_commands::handle_lavalink_stop(ctx, &command).await?
+            if has_hybrid {
+                hybrid_commands::handle_hybrid_stop(ctx, &command).await?
             } else {
                 handle_stop(ctx, command, bot).await?
             }
         }
-        "volume" => {
-            if has_lavalink {
-                let volume = command
-                    .data
-                    .options
-                    .first()
-                    .and_then(|opt| opt.value.as_i64())
-                    .unwrap_or(50);
-                lavalink_simple_commands::handle_lavalink_volume(ctx, &command, volume).await?
+        "leave" => {
+            if has_hybrid {
+                hybrid_commands::handle_hybrid_leave(ctx, &command).await?
             } else {
-                handle_volume(ctx, command, bot).await?
+                handle_leave(ctx, command, bot).await?
             }
+        }
+        "nowplaying" => {
+            if has_hybrid {
+                hybrid_commands::handle_hybrid_nowplaying(ctx, &command).await?
+            } else {
+                handle_nowplaying(ctx, command, bot).await?
+            }
+        }
+        "volume" => {
+            // Volume control no está implementado en hybrid todavía, usar original
+            handle_volume(ctx, command, bot).await?
         }
         "queue" => {
-            if has_lavalink {
-                let page = command
-                    .data
-                    .options
-                    .first()
-                    .and_then(|opt| opt.value.as_i64());
-                lavalink_simple_commands::handle_lavalink_queue(ctx, &command, page).await?
-            } else {
-                handle_queue(ctx, command, bot).await?
-            }
+            // Queue management no está implementado en hybrid todavía, usar original
+            handle_queue(ctx, command, bot).await?
         }
         "search" => super::search::handle_search_command(ctx, command, bot).await?,
-        "nowplaying" => handle_nowplaying(ctx, command, bot).await?,
         "shuffle" => handle_shuffle(ctx, command, bot).await?,
         "loop" => handle_loop(ctx, command, bot).await?,
         "join" => handle_join(ctx, command, bot).await?,
-        "leave" => handle_leave(ctx, command, bot).await?,
         "equalizer" => handle_equalizer(ctx, command, bot).await?,
         "clear" => handle_clear(ctx, command, bot).await?,
         "playlist" => handle_playlist(ctx, command, bot).await?,

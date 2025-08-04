@@ -13,7 +13,7 @@ mod sources;
 mod storage;
 mod ui;
 
-use crate::audio::lavalink_simple::LavalinkManager;
+use crate::audio::{hybrid_manager::HybridAudioManager, lavalink_simple::LavalinkManager};
 use crate::bot::OpenMusicBot;
 use crate::cache::MusicCache;
 use crate::config::Config;
@@ -64,18 +64,23 @@ async fn main() -> Result<()> {
     // Crear handler del bot
     let handler = OpenMusicBot::new(config.clone(), storage, cache, monitoring);
 
-    // Construir cliente
-    let _songbird = Songbird::serenity();
+    // Construir cliente con Songbird
+    let songbird = Songbird::serenity();
     let mut client = Client::builder(&config.discord_token, intents)
         .event_handler(handler)
-        .register_songbird()
+        .register_songbird_with(songbird.clone())
         .await?;
 
     // Inicializar Lavalink
     info!("🎼 Inicializando Lavalink...");
     let user_id = client.http.get_current_user().await?.id;
     
-    match LavalinkManager::new(&config, user_id).await {
+    // Inicializar HybridAudioManager
+    info!("🎵 Inicializando sistema de audio híbrido...");
+    let hybrid_manager = HybridAudioManager::new(songbird.clone(), Arc::new(config.clone()));
+    
+    // Intentar inicializar Lavalink como complemento
+    let lavalink_available = match LavalinkManager::new(&config, user_id).await {
         Ok(lavalink) => {
             info!("✅ Lavalink inicializado exitosamente");
             
@@ -84,11 +89,23 @@ async fn main() -> Result<()> {
                 let mut data = client.data.write().await;
                 data.insert::<LavalinkManager>(Arc::new(lavalink));
             }
+            true
         }
         Err(e) => {
             error!("❌ Error al inicializar Lavalink: {:?}", e);
-            info!("🔄 Continuando sin Lavalink - usando yt-dlp directo como fallback");
+            info!("🔄 Continuando con sistema híbrido Songbird + yt-dlp");
+            false
         }
+    };
+
+    // Configurar el hybrid manager
+    let mut hybrid_manager = hybrid_manager;
+    hybrid_manager.set_lavalink_available(lavalink_available);
+    
+    // Insertar el hybrid manager en el contexto
+    {
+        let mut data = client.data.write().await;
+        data.insert::<HybridAudioManager>(Arc::new(hybrid_manager));
     }
 
     // Manejar shutdown graceful
