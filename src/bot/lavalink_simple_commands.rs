@@ -47,10 +47,10 @@ pub async fn handle_lavalink_play(
     }
 
     let first_track = tracks[0].clone();
-    lavalink.play(guild_id, first_track.clone()).await?;
+    lavalink.play(guild_id, &first_track).await?;
 
     let embed = create_success_embed("🎵 Reproduciendo",
-        &format!("**{}**\n\n▶️ Reproduciendo ahora (Lavalink)", first_track)
+        &format!("**{}**\n\n▶️ Reproduciendo ahora (Lavalink)", first_track.info.title)
     );
     
     interaction.edit_response(&ctx.http, 
