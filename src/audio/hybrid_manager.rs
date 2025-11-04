@@ -9,7 +9,6 @@ use tracing::{debug, info};
 
 use crate::audio::player::AudioPlayer;
 use crate::sources::{TrackSource, YtDlpOptimizedClient, MusicSource};
-use crate::audio::lavalink_simple::{LavalinkManager, Track};
 use crate::config::Config;
 
 /// Manager híbrido que combina Songbird real con preparación para Lavalink
@@ -44,7 +43,7 @@ impl HybridAudioManager {
     }
 
     /// Conecta a un canal de voz y prepara para reproducción
-    pub async fn join_channel(&self, guild_id: GuildId, channel_id: ChannelId, user_id: UserId) -> Result<()> {
+    pub async fn join_channel(&self, guild_id: GuildId, channel_id: ChannelId, _user_id: UserId) -> Result<()> {
         info!("🔗 Conectando al canal {} en guild {}", channel_id, guild_id);
 
         // Obtener o crear la llamada de voz
@@ -70,7 +69,7 @@ impl HybridAudioManager {
         }
 
         // Crear o obtener player para este guild
-        let player = {
+        let _player = {
             let mut players = self.players.write().await;
             players.entry(guild_id)
                 .or_insert_with(|| Arc::new(AudioPlayer::new()))
@@ -100,9 +99,9 @@ impl HybridAudioManager {
     }
 
     /// Reproduce usando Songbird directamente (método funcional)
-    async fn play_with_songbird(&self, guild_id: GuildId, query: &str, user_id: UserId) -> Result<TrackSource> {
+    async fn play_with_songbird(&self, guild_id: GuildId, query: &str, _user_id: UserId) -> Result<TrackSource> {
         // Obtener el player
-        let player = {
+        let _player = {
             let players = self.players.read().await;
             players.get(&guild_id)
                 .ok_or_else(|| anyhow::anyhow!("No hay player para este guild. ¿Estás conectado a un canal de voz?"))?
@@ -132,8 +131,8 @@ impl HybridAudioManager {
         // Agregar el track a la llamada
         {
             let mut call_lock = call.lock().await;
-            let track_handle = call_lock.play_input(audio_input);
-            
+            let _track_handle = call_lock.play_input(audio_input);
+
             info!("🎵 Track agregado exitosamente: {}", source.title());
         }
 
@@ -142,7 +141,7 @@ impl HybridAudioManager {
     }
 
     /// Reproduce usando Lavalink (método preferido en servidor dedicado)
-    async fn play_with_lavalink(&self, guild_id: GuildId, query: &str, user_id: UserId) -> Result<TrackSource> {
+    async fn play_with_lavalink(&self, guild_id: GuildId, query: &str, _user_id: UserId) -> Result<TrackSource> {
         info!("🎼 Usando Lavalink para reproducir: {}", query);
         
         // Obtener Lavalink manager del contexto

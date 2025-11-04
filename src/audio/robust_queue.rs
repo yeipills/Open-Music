@@ -359,7 +359,6 @@ impl RobustQueue {
     }
 
     /// Métodos de compatibilidad con la interfaz original
-    
     #[allow(dead_code)]
     pub async fn current(&self) -> Option<QueueItem> {
         let queue = self.inner.read().await;

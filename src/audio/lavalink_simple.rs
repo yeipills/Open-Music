@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serenity::model::id::{GuildId, UserId};
 use serenity::prelude::*;
 use std::sync::Arc;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use crate::config::Config;
 
@@ -47,16 +47,7 @@ struct PlayRequest {
 impl LavalinkManager {
     /// Crea una nueva instancia de LavalinkManager
     pub async fn new(config: &Config, user_id: UserId) -> Result<Self> {
-        let host = std::env::var("LAVALINK_HOST")
-            .unwrap_or_else(|_| "lavalink".to_string());
-        let port = std::env::var("LAVALINK_PORT")
-            .unwrap_or_else(|_| "2333".to_string())
-            .parse::<u16>()
-            .unwrap_or(2333);
-        let password = std::env::var("LAVALINK_PASSWORD")
-            .unwrap_or_else(|_| "youshallnotpass".to_string());
-        
-        let base_url = format!("http://{}:{}", host, port);
+        let base_url = format!("http://{}:{}", config.lavalink_host, config.lavalink_port);
         
         info!("🎼 Configurando Lavalink en {}", base_url);
         
@@ -81,7 +72,7 @@ impl LavalinkManager {
         Ok(Self {
             client,
             base_url,
-            password,
+            password: config.lavalink_password.clone(),
             user_id,
         })
     }

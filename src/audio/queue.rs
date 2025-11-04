@@ -308,7 +308,6 @@ impl MusicQueue {
     }
 
     /// Métodos adicionales para compatibilidad
-
     /// Obtiene el track actual como TrackSource
     #[allow(dead_code)]
     pub fn current_track(&self) -> Option<TrackSource> {

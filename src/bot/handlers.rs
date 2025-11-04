@@ -1228,8 +1228,8 @@ async fn handle_metrics(ctx: &Context, command: CommandInteraction, bot: &OpenMu
             for category in error_report.categories.iter().take(5) {
                 description.push_str(&format!(
                     "**{}**: {} errores\n",
-                    category.category,
-                    category.total_count
+                    category.name,
+                    category.count
                 ));
             }
             

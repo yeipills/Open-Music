@@ -74,7 +74,10 @@ Thumbs.db
 
 # === METRICS & MONITORING ===
 metrics/
-monitoring/
+/monitoring/
+
+# Allow src/monitoring/ (source code)
+!src/monitoring/
 
 # === TEST COVERAGE ===
 coverage/

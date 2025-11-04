@@ -37,6 +37,11 @@ pub struct Config {
 
     // APIs
     pub youtube_api_key: Option<String>,
+
+    // Lavalink
+    pub lavalink_host: String,
+    pub lavalink_port: u16,
+    pub lavalink_password: String,
 }
 
 impl Config {
@@ -105,6 +110,15 @@ impl Config {
 
             // APIs
             youtube_api_key: std::env::var("YOUTUBE_API_KEY").ok().map(|s| s.to_string()),
+
+            // Lavalink
+            lavalink_host: std::env::var("LAVALINK_HOST")
+                .unwrap_or_else(|_| "lavalink".to_string()),
+            lavalink_port: std::env::var("LAVALINK_PORT")
+                .unwrap_or_else(|_| "2333".to_string())
+                .parse()?,
+            lavalink_password: std::env::var("LAVALINK_PASSWORD")
+                .unwrap_or_else(|_| "youshallnotpass".to_string()),
         };
 
         // Create directories if they don't exist
@@ -251,6 +265,11 @@ impl Default for Config {
 
             // APIs
             youtube_api_key: None,
+
+            // Lavalink
+            lavalink_host: "lavalink".to_string(),
+            lavalink_port: 2333,
+            lavalink_password: "youshallnotpass".to_string(),
         }
     }
 }
