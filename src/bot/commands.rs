@@ -15,6 +15,7 @@ pub async fn register_global_commands(ctx: &Context) -> Result<()> {
         pause_command(),
         resume_command(),
         skip_command(),
+        previous_command(),
         stop_command(),
         queue_command(),
         nowplaying_command(),
@@ -25,6 +26,10 @@ pub async fn register_global_commands(ctx: &Context) -> Result<()> {
         equalizer_command(),
         join_command(),
         leave_command(),
+        seek_command(),
+        add_command(),
+        remove_command(),
+        jump_command(),
         help_command(),
         health_command(),
         metrics_command(),
@@ -47,6 +52,7 @@ pub async fn register_guild_commands(ctx: &Context, guild_id: GuildId) -> Result
         pause_command(),
         resume_command(),
         skip_command(),
+        previous_command(),
         stop_command(),
         queue_command(),
         nowplaying_command(),
@@ -57,6 +63,10 @@ pub async fn register_guild_commands(ctx: &Context, guild_id: GuildId) -> Result
         equalizer_command(),
         join_command(),
         leave_command(),
+        seek_command(),
+        add_command(),
+        remove_command(),
+        jump_command(),
         help_command(),
         health_command(),
         metrics_command(),
@@ -142,6 +152,70 @@ fn skip_command() -> CreateCommand {
             )
             .min_int_value(1)
             .max_int_value(100),
+        )
+}
+
+fn previous_command() -> CreateCommand {
+    CreateCommand::new("previous")
+        .description("Vuelve a la canción anterior")
+        .dm_permission(false)
+}
+
+fn seek_command() -> CreateCommand {
+    CreateCommand::new("seek")
+        .description("Salta a una posición específica en la canción")
+        .dm_permission(false)
+        .add_option(
+            CreateCommandOption::new(
+                CommandOptionType::String,
+                "time",
+                "Tiempo (ej: 1:30, 90, 2:15:30)",
+            )
+            .required(true),
+        )
+}
+
+fn add_command() -> CreateCommand {
+    CreateCommand::new("add")
+        .description("Agrega una canción a la cola sin reproducir")
+        .dm_permission(false)
+        .add_option(
+            CreateCommandOption::new(
+                CommandOptionType::String,
+                "query",
+                "URL o término de búsqueda",
+            )
+            .required(true),
+        )
+}
+
+fn remove_command() -> CreateCommand {
+    CreateCommand::new("remove")
+        .description("Remueve una canción de la cola por posición")
+        .dm_permission(false)
+        .add_option(
+            CreateCommandOption::new(
+                CommandOptionType::Integer,
+                "position",
+                "Posición de la canción (1, 2, 3...)",
+            )
+            .required(true)
+            .min_int_value(1),
+        )
+}
+
+fn jump_command() -> CreateCommand {
+    CreateCommand::new("jump")
+        .description("Salta a una posición específica en la cola")
+        .dm_permission(false)
+        .add_option(
+            CreateCommandOption::new(
+                CommandOptionType::Integer,
+                "position",
+                "Posición en la cola (1, 2, 3...)",
+            )
+            .required(true)
+            .min_int_value(1),
         )
 }
 

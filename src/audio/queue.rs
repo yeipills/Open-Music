@@ -285,6 +285,58 @@ impl MusicQueue {
         Ok(())
     }
 
+    /// Vuelve al track anterior del historial
+    pub fn previous_track(&mut self) -> Option<TrackSource> {
+        if self.history.is_empty() {
+            info!("📭 No hay historial de canciones anteriores");
+            return None;
+        }
+
+        // Guardar current en la cola si existe
+        if let Some(current) = self.current.take() {
+            self.items.push_front(QueueItem::from(current.source.clone()));
+        }
+
+        // Obtener el último del historial
+        let previous = self.history.pop()?;
+        info!("⏮️ Volviendo a: {}", previous.title);
+        self.current = Some(previous.clone());
+        Some(previous.source)
+    }
+
+    /// Salta a una posición específica en la cola
+    pub fn jump_to(&mut self, position: usize) -> Option<TrackSource> {
+        if position == 0 || position > self.items.len() {
+            info!("❌ Posición {} fuera de rango (1-{})", position, self.items.len());
+            return None;
+        }
+
+        // Guardar current en history si existe
+        if let Some(current) = self.current.take() {
+            self.add_to_history(current);
+        }
+
+        // Mover todo lo anterior a history
+        let index = position - 1; // Convertir a 0-indexed
+        for _ in 0..index {
+            if let Some(item) = self.items.pop_front() {
+                self.add_to_history(item);
+            }
+        }
+
+        // Obtener el item en la posición
+        let target = self.items.pop_front()?;
+        info!("🎯 Saltando a posición {}: {}", position, target.title);
+        self.current = Some(target.clone());
+        Some(target.source)
+    }
+
+    /// Obtiene el historial de reproducción
+    #[allow(dead_code)]
+    pub fn get_history(&self) -> Vec<&QueueItem> {
+        self.history.iter().collect()
+    }
+
     // Funciones privadas
 
     fn add_to_history(&mut self, item: QueueItem) {

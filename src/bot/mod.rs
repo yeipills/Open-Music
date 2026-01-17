@@ -431,26 +431,88 @@ impl EventHandler for OpenMusicBot {
         // Auto-desconectar si el bot está solo en el canal
         if let Some(guild_id) = new.guild_id {
             if let Some(handler) = self.get_voice_handler(guild_id) {
-                let handler_lock = handler.lock().await;
-                if let Some(channel_id) = handler_lock.current_channel() {
-                    // Verificar cuántos usuarios hay en el canal
-                    let serenity_channel_id = ChannelId::from(channel_id.0);
-                    
-                    if let Some(guild) = ctx.cache.guild(guild_id) {
-                        if let Some(channel) = guild.channels.get(&serenity_channel_id) {
-                            let member_count = channel.members(&ctx.cache).map(|m| m.len()).unwrap_or(0);
-
-                            if member_count <= 1 {
-                                // Solo el bot está en el canal
-                                drop(handler_lock); // Liberar lock antes de llamar leave
-
-                                info!(
-                                    "🚪 Programando auto-desconexión por inactividad en guild {}",
-                                    guild_id
-                                );
-                            }
-                        }
+                // Extraer toda la información del cache ANTES de cualquier await
+                let (is_alone, serenity_channel_id) = {
+                    let handler_lock = handler.lock().await;
+                    if let Some(channel_id) = handler_lock.current_channel() {
+                        let serenity_channel_id = ChannelId::from(channel_id.0);
+                        
+                        // Obtener member_count sin guardar CacheRef
+                        let member_count = ctx.cache.guild(guild_id)
+                            .and_then(|guild| {
+                                guild.channels.get(&serenity_channel_id).and_then(|channel| {
+                                    channel.members(&ctx.cache).ok().map(|m| m.len())
+                                })
+                            })
+                            .unwrap_or(0);
+                        
+                        (member_count <= 1, Some(serenity_channel_id))
+                    } else {
+                        (false, None)
                     }
+                };
+                
+                if is_alone {
+                    // Obtener timeout de configuración
+                    let timeout_secs = {
+                        let storage = self.storage.lock().await;
+                        storage.get_auto_leave_timeout(guild_id.get())
+                    };
+
+                    info!(
+                        "🚪 Bot solo en canal, auto-desconexión en {} segundos (guild {})",
+                        timeout_secs, guild_id
+                    );
+                    
+                    // Crear referencias clonadas para el spawn
+                    let storage_clone = self.storage.clone();
+                    let player_clone = self.player.clone();
+                    let voice_handlers_clone = self.voice_handlers.clone();
+                    let ctx_clone = ctx.clone();
+                    let channel_id_for_check = serenity_channel_id;
+                    
+                    tokio::spawn(async move {
+                        // Esperar el timeout configurado
+                        tokio::time::sleep(tokio::time::Duration::from_secs(timeout_secs)).await;
+                        
+                        // Verificar si el auto_leave_empty está habilitado
+                        let should_leave = {
+                            let storage = storage_clone.lock().await;
+                            storage.get_auto_leave_empty(guild_id.get())
+                        };
+                        
+                        if !should_leave {
+                            return;
+                        }
+                        
+                        // Verificar si todavía estamos solos
+                        let still_alone = channel_id_for_check.map(|ch_id| {
+                            ctx_clone.cache.guild(guild_id)
+                                .and_then(|guild| {
+                                    guild.channels.get(&ch_id).and_then(|channel| {
+                                        channel.members(&ctx_clone.cache).ok().map(|m| m.len() <= 1)
+                                    })
+                                })
+                                .unwrap_or(false)
+                        }).unwrap_or(false);
+                        
+                        if still_alone {
+                            // Desconectar
+                            if let Err(e) = player_clone.stop(guild_id).await {
+                                warn!("Error deteniendo reproducción: {:?}", e);
+                            }
+                            
+                            voice_handlers_clone.remove(&guild_id);
+                            
+                            if let Some(manager) = songbird::get(&ctx_clone).await {
+                                if let Err(e) = manager.remove(guild_id).await {
+                                    warn!("Error desconectando: {:?}", e);
+                                }
+                            }
+                            
+                            info!("👋 Auto-desconectado por inactividad (guild {})", guild_id);
+                        }
+                    });
                 }
             }
         }

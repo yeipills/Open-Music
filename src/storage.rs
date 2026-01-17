@@ -274,6 +274,25 @@ impl JsonStorage {
         self.servers_cache.keys().copied().collect()
     }
     
+    /// Obtiene el rol de DJ de un servidor (sin async)
+    pub fn get_dj_role(&self, guild_id: u64) -> Option<u64> {
+        self.servers_cache.get(&guild_id).and_then(|c| c.dj_role_id)
+    }
+    
+    /// Obtiene el timeout de auto-leave de un servidor (sin async)
+    pub fn get_auto_leave_timeout(&self, guild_id: u64) -> u64 {
+        self.servers_cache.get(&guild_id)
+            .map(|c| c.auto_leave_timeout)
+            .unwrap_or(300)
+    }
+    
+    /// Obtiene si auto-leave está habilitado para un servidor (sin async)
+    pub fn get_auto_leave_empty(&self, guild_id: u64) -> bool {
+        self.servers_cache.get(&guild_id)
+            .map(|c| c.auto_leave_empty)
+            .unwrap_or(true)
+    }
+    
     /// Obtiene estadísticas de almacenamiento
     #[allow(dead_code)]
     pub async fn get_storage_stats(&self) -> Result<StorageStats> {
