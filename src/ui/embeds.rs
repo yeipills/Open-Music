@@ -58,6 +58,7 @@ pub mod colors {
 const STANDARD_FOOTER: &str = "🎵 Open Music Bot";
 
 /// Crea un embed para mostrar la canción actual desde QueueItem
+#[allow(dead_code)]
 pub fn create_now_playing_embed(track: &QueueItem) -> CreateEmbed {
     let mut embed = CreateEmbed::default()
         .title("🎵 Reproduciendo Ahora")

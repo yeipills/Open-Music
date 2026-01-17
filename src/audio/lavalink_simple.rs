@@ -4,11 +4,12 @@ use serde::{Deserialize, Serialize};
 use serenity::model::id::{GuildId, UserId};
 use serenity::prelude::*;
 use std::sync::Arc;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use crate::config::Config;
 
 /// Cliente real para Lavalink API
+#[allow(dead_code)]
 pub struct LavalinkManager {
     client: Client,
     base_url: String,
@@ -46,7 +47,7 @@ struct PlayRequest {
 
 impl LavalinkManager {
     /// Crea una nueva instancia de LavalinkManager
-    pub async fn new(config: &Config, user_id: UserId) -> Result<Self> {
+    pub async fn new(_config: &Config, user_id: UserId) -> Result<Self> {
         let host = std::env::var("LAVALINK_HOST")
             .unwrap_or_else(|_| "lavalink".to_string());
         let port = std::env::var("LAVALINK_PORT")
@@ -312,6 +313,7 @@ impl LavalinkManager {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn leave_channel(&self, guild_id: GuildId) -> Result<()> {
         info!("👋 Dejando canal en guild {}", guild_id);
         self.stop(guild_id).await

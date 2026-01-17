@@ -395,6 +395,21 @@ async fn handle_pause(
 ) -> Result<()> {
     let guild_id = command.guild_id.unwrap();
 
+    // Validar que hay algo reproduciéndose
+    if !bot.player.is_playing(guild_id).await {
+        command
+            .create_response(
+                &ctx.http,
+                CreateInteractionResponse::Message(
+                    CreateInteractionResponseMessage::new()
+                        .content("❌ No hay nada reproduciéndose actualmente")
+                        .ephemeral(true),
+                ),
+            )
+            .await?;
+        return Ok(());
+    }
+
     bot.player.pause(guild_id).await?;
 
     command
@@ -415,6 +430,21 @@ async fn handle_resume(
     bot: &OpenMusicBot,
 ) -> Result<()> {
     let guild_id = command.guild_id.unwrap();
+
+    // Validar que el bot está conectado al canal de voz
+    if bot.get_voice_handler(guild_id).is_none() {
+        command
+            .create_response(
+                &ctx.http,
+                CreateInteractionResponse::Message(
+                    CreateInteractionResponseMessage::new()
+                        .content("❌ El bot no está conectado a un canal de voz")
+                        .ephemeral(true),
+                ),
+            )
+            .await?;
+        return Ok(());
+    }
 
     bot.player.resume(guild_id).await?;
 
@@ -463,6 +493,21 @@ async fn handle_skip(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
 
 async fn handle_stop(ctx: &Context, command: CommandInteraction, bot: &OpenMusicBot) -> Result<()> {
     let guild_id = command.guild_id.unwrap();
+
+    // Validar que el bot está conectado
+    if bot.get_voice_handler(guild_id).is_none() {
+        command
+            .create_response(
+                &ctx.http,
+                CreateInteractionResponse::Message(
+                    CreateInteractionResponseMessage::new()
+                        .content("❌ El bot no está reproduciendo nada")
+                        .ephemeral(true),
+                ),
+            )
+            .await?;
+        return Ok(());
+    }
 
     bot.player.stop(guild_id).await?;
     bot.leave_voice_channel(ctx, guild_id).await?;
@@ -642,26 +687,57 @@ async fn handle_volume(
         .and_then(|opt| opt.value.as_i64());
 
     if let Some(vol) = volume {
+        // Validar rango
+        if vol < 0 || vol > 200 {
+            command
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content("❌ El volumen debe estar entre 0 y 200%")
+                            .ephemeral(true),
+                    ),
+                )
+                .await?;
+            return Ok(());
+        }
+
         let normalized = (vol as f32 / 100.0).clamp(0.0, 2.0);
         bot.player.set_volume(guild_id, normalized).await?;
+
+        // Mensaje con advertencia si > 100%
+        let message = if vol > 100 {
+            format!("🔊 Volumen ajustado a {}%\n⚠️ **Advertencia**: Volúmenes superiores a 100% pueden causar distorsión", vol)
+        } else if vol == 0 {
+            "🔇 Audio silenciado (0%)".to_string()
+        } else if vol <= 30 {
+            format!("🔉 Volumen ajustado a {}%", vol)
+        } else {
+            format!("🔊 Volumen ajustado a {}%", vol)
+        };
 
         command
             .create_response(
                 &ctx.http,
                 CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content(format!("🔊 Volumen ajustado a {}%", vol)),
+                    CreateInteractionResponseMessage::new().content(message),
                 ),
             )
             .await?;
     } else {
         let current = bot.player.get_volume(guild_id).await.unwrap_or(0.5);
+        let vol_percent = (current * 100.0) as i32;
+        
+        let emoji = if vol_percent == 0 { "🔇" } 
+                    else if vol_percent <= 30 { "🔉" } 
+                    else { "🔊" };
+        
         command
             .create_response(
                 &ctx.http,
                 CreateInteractionResponse::Message(
                     CreateInteractionResponseMessage::new()
-                        .content(format!("🔊 Volumen actual: {}%", (current * 100.0) as i32)),
+                        .content(format!("{} Volumen actual: {}%", emoji, vol_percent)),
                 ),
             )
             .await?;

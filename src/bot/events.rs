@@ -57,6 +57,7 @@ impl VoiceEventHandler for TrackErrorHandler {
 }
 
 /// Handler para cuando un track comienza
+#[allow(dead_code)]
 pub struct TrackStartHandler {
     pub guild_id: GuildId,
     pub ctx: Context,
@@ -103,6 +104,7 @@ impl VoiceEventHandler for VoiceStateHandler {
 }
 
 /// Handler para recibir audio de usuarios (para futuras features como grabación)
+#[allow(dead_code)]
 pub struct ReceiveHandler;
 
 #[async_trait]
@@ -130,7 +132,8 @@ impl VoiceEventHandler for ReconnectHandler {
     }
 }
 
-/// Envía un mensaje de "Now Playing" al canal
+/// Envía un mensaje de \"Now Playing\" al canal
+#[allow(dead_code)]
 async fn send_now_playing(ctx: &Context, channel_id: ChannelId, track: &QueueItem) -> Result<()> {
     let embed = crate::ui::embeds::create_now_playing_embed(track);
     let buttons = crate::ui::buttons::create_player_buttons();

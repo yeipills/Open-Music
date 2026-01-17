@@ -16,70 +16,66 @@ panic = "abort"
 
 [dependencies]
 # Framework Discord - Versiones estables para audio
-serenity = { version = "0.12.4", features = ["voice", "gateway", "rustls_backend", "http", "cache", "collector"] }
+serenity = { version = "0.12.5", features = ["voice", "gateway", "rustls_backend", "http", "cache", "collector"] }
 songbird = { version = "0.5.0", features = ["builtin-queue", "serenity", "driver", "gateway", "rustls"] }
 
 # Procesamiento de audio - Versiones actualizadas
-symphonia = { version = "0.5.4", features = ["mp3", "aac", "flac", "wav", "ogg", "isomp4"] }
-audiopus = "0.3.0-rc.0"  # Versión estable disponible
+symphonia = { version = "0.5.5", features = ["mp3", "aac", "flac", "wav", "ogg", "isomp4"] }
+audiopus = "0.3.0-rc.0"
 fundsp = { version = "0.20", default-features = false }
-rubato = "0.15.0"
-tempfile = "3.20.0"
-# Songbird NO requiere FFmpeg - usa Symphonia internamente
+rubato = "0.16"
+tempfile = "3.15"
 
 # Async runtime - Versiones optimizadas
-tokio = { version = "1.45", features = ["full"] }
-tokio-util = "0.7.15"
+tokio = { version = "1.49", features = ["full"] }
+tokio-util = "0.7.13"
 async-trait = "0.1.88"
 futures = "0.3"
 
 # Utilidades - Versiones estables
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-anyhow = "1.0"
+anyhow = "1.0.95"
 thiserror = "2.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-config = "0.15.0"
-dotenvy = "0.15"  # Reemplazo moderno de dotenv
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.137"
+config = "0.15"
+dotenvy = "0.15"
 
-# HTTP y APIs - Versiones actualizadas (Compatible con Songbird)
-reqwest = { version = "0.12.20", features = ["json", "rustls-tls", "stream"], default-features = false }
-url = "2.5.4"
-base64 = "0.22.1"
+# HTTP y APIs - Versiones actualizadas
+reqwest = { version = "0.12.12", features = ["json", "rustls-tls", "stream"], default-features = false }
+url = "2.5"
+base64 = "0.22"
 urlencoding = "2.1"
 
-# Base de datos eliminada - Usando JSON simple
-
-# Caché y estructuras de datos - Versiones estables
+# Caché y estructuras de datos
 dashmap = "6.1"
 parking_lot = "0.12"
 crossbeam-channel = "0.5"
 
-# UI y formato - Versiones estables
-chrono = { version = "0.4", features = ["serde"] }
+# UI y formato
+chrono = { version = "0.4.39", features = ["serde"] }
 humantime = "2.2"
 num-format = "0.4"
 
-# Lavalink será implementado posteriormente con la API correcta
-# lavalink-rs = "0.14.1"
-
-# Integración con yt-dlp - Versiones mejoradas (mantenido como fallback)
-async-process = "2.3.1"
-regex = "1.11.1"
-# urlencoding = "2.1.3" # Duplicado, ya está definido arriba
-# Dependencias adicionales para mejor audio
-bytes = "1.10.1"
-flume = "0.11.1"
+# Integración con yt-dlp
+async-process = "2.3"
+regex = "1.11"
+bytes = "1.10"
+flume = "0.11"
 
 # Adicionales básicos
-rand = "0.8.5"
+rand = "0.8"
 num_cpus = "1.17"
-fastrand = "2.2"
+fastrand = "2.3"
 
 [dev-dependencies]
 pretty_assertions = "1.4"
 mockall = "0.13"
+
+[lib]
+name = "open_music"
+path = "src/lib.rs"
 
 [[bin]]
 name = "open-music"

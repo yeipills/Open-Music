@@ -73,6 +73,7 @@ pub async fn register_guild_commands(ctx: &Context, guild_id: GuildId) -> Result
 fn play_command() -> CreateCommand {
     CreateCommand::new("play")
         .description("Reproduce una canción o playlist")
+        .dm_permission(false)
         .add_option(
             CreateCommandOption::new(
                 CommandOptionType::String,
@@ -86,6 +87,7 @@ fn play_command() -> CreateCommand {
 fn search_command() -> CreateCommand {
     CreateCommand::new("search")
         .description("Busca canciones y muestra resultados")
+        .dm_permission(false)
         .add_option(
             CreateCommandOption::new(CommandOptionType::String, "query", "Término de búsqueda")
                 .required(true),
@@ -102,6 +104,7 @@ fn search_command() -> CreateCommand {
 fn playlist_command() -> CreateCommand {
     CreateCommand::new("playlist")
         .description("Carga una playlist completa")
+        .dm_permission(false)
         .add_option(
             CreateCommandOption::new(CommandOptionType::String, "url", "URL de la playlist")
                 .required(true),
@@ -116,16 +119,21 @@ fn playlist_command() -> CreateCommand {
 // Comandos de control
 
 fn pause_command() -> CreateCommand {
-    CreateCommand::new("pause").description("Pausa la reproducción actual")
+    CreateCommand::new("pause")
+        .description("Pausa la reproducción actual")
+        .dm_permission(false)
 }
 
 fn resume_command() -> CreateCommand {
-    CreateCommand::new("resume").description("Reanuda la reproducción pausada")
+    CreateCommand::new("resume")
+        .description("Reanuda la reproducción pausada")
+        .dm_permission(false)
 }
 
 fn skip_command() -> CreateCommand {
     CreateCommand::new("skip")
         .description("Salta a la siguiente canción")
+        .dm_permission(false)
         .add_option(
             CreateCommandOption::new(
                 CommandOptionType::Integer,
@@ -138,7 +146,9 @@ fn skip_command() -> CreateCommand {
 }
 
 fn stop_command() -> CreateCommand {
-    CreateCommand::new("stop").description("Detiene la reproducción y limpia la cola")
+    CreateCommand::new("stop")
+        .description("Detiene la reproducción y limpia la cola")
+        .dm_permission(false)
 }
 
 // Comandos de cola
@@ -146,6 +156,7 @@ fn stop_command() -> CreateCommand {
 fn queue_command() -> CreateCommand {
     CreateCommand::new("queue")
         .description("Muestra la cola de reproducción")
+        .dm_permission(false)
         .add_option(
             CreateCommandOption::new(CommandOptionType::Integer, "page", "Número de página")
                 .min_int_value(1),
@@ -153,16 +164,21 @@ fn queue_command() -> CreateCommand {
 }
 
 fn nowplaying_command() -> CreateCommand {
-    CreateCommand::new("nowplaying").description("Muestra información de la canción actual")
+    CreateCommand::new("nowplaying")
+        .description("Muestra información de la canción actual")
+        .dm_permission(false)
 }
 
 fn shuffle_command() -> CreateCommand {
-    CreateCommand::new("shuffle").description("Activa/desactiva el modo aleatorio")
+    CreateCommand::new("shuffle")
+        .description("Activa/desactiva el modo aleatorio")
+        .dm_permission(false)
 }
 
 fn loop_command() -> CreateCommand {
     CreateCommand::new("loop")
         .description("Configura el modo de repetición")
+        .dm_permission(false)
         .add_option(
             CreateCommandOption::new(CommandOptionType::String, "mode", "Modo de repetición")
                 .add_string_choice("Desactivar", "off")
@@ -175,6 +191,7 @@ fn loop_command() -> CreateCommand {
 fn clear_command() -> CreateCommand {
     CreateCommand::new("clear")
         .description("Limpia la cola de reproducción")
+        .dm_permission(false)
         .add_option(
             CreateCommandOption::new(CommandOptionType::String, "target", "Qué limpiar")
                 .add_string_choice("Cola completa", "queue")
@@ -193,6 +210,7 @@ fn clear_command() -> CreateCommand {
 fn volume_command() -> CreateCommand {
     CreateCommand::new("volume")
         .description("Ajusta el volumen de reproducción")
+        .dm_permission(false)
         .add_option(
             CreateCommandOption::new(
                 CommandOptionType::Integer,
@@ -209,11 +227,15 @@ fn volume_command() -> CreateCommand {
 // Comandos de conexión
 
 fn join_command() -> CreateCommand {
-    CreateCommand::new("join").description("Conecta el bot a tu canal de voz")
+    CreateCommand::new("join")
+        .description("Conecta el bot a tu canal de voz")
+        .dm_permission(false)
 }
 
 fn leave_command() -> CreateCommand {
-    CreateCommand::new("leave").description("Desconecta el bot del canal de voz")
+    CreateCommand::new("leave")
+        .description("Desconecta el bot del canal de voz")
+        .dm_permission(false)
 }
 
 // Comandos adicionales
@@ -222,6 +244,7 @@ fn leave_command() -> CreateCommand {
 fn equalizer_command() -> CreateCommand {
     CreateCommand::new("equalizer")
         .description("Configura el ecualizador con presets")
+        .dm_permission(false)
         .add_option(
             CreateCommandOption::new(CommandOptionType::String, "preset", "Preset de ecualizador")
                 .add_string_choice("Plano", "flat")
@@ -247,9 +270,14 @@ fn help_command() -> CreateCommand {
 }
 
 fn health_command() -> CreateCommand {
-    CreateCommand::new("health").description("Muestra el estado de salud del bot")
+    CreateCommand::new("health")
+        .description("Muestra el estado de salud del bot")
+        .dm_permission(false)
 }
 
 fn metrics_command() -> CreateCommand {
-    CreateCommand::new("metrics").description("Muestra métricas de rendimiento del bot")
+    CreateCommand::new("metrics")
+        .description("Muestra métricas de rendimiento del bot")
+        .dm_permission(false)
 }
+

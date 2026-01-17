@@ -11,10 +11,11 @@ Bot moderno con arquitectura optimizada, soporte completo para comandos slash, y
 ### 🎯 Características Principales
 
 **Core**
-- ✅ **Rust 2021** con dependencias actualizadas (Serenity 0.12.4, Songbird 0.5.0)
-- ✅ **Comandos Slash** completos con autocompletado
+- ✅ **Rust 2021** con dependencias actualizadas (Serenity 0.12.5, Songbird 0.5.0)
+- ✅ **Comandos Slash** completos con autocompletado y `dm_permission`
 - ✅ **Audio de Alta Calidad** con Opus 96-384kbps
 - ✅ **Interfaz Interactiva** con botones Discord nativos
+- ✅ **Tests Unitarios** para config y storage (18 tests)
 
 **Audio Avanzado**
 - ✅ **Ecualizador** con 8 presets (Bass, Pop, Rock, Jazz, Classical, Electronic, Vocal, Flat)
@@ -48,10 +49,10 @@ cargo run
 
 ### Stack Tecnológico
 | Componente | Tecnología | Versión |
-|------------|------------|----------|
-| **Framework** | Serenity + Songbird | 0.12.4 + 0.5.0 |
-| **Audio** | yt-dlp + Symphonia + Opus | 2025.01 + 0.5.4 + 0.3.0 |
-| **Runtime** | Tokio | 1.45 |
+|------------|------------|---------|
+| **Framework** | Serenity + Songbird | 0.12.5 + 0.5.0 |
+| **Audio** | yt-dlp + Symphonia + Opus | 2025.01 + 0.5.5 + 0.3.0 |
+| **Runtime** | Tokio | 1.49 |
 | **Extracción** | YtDlp Optimizado | Ultra-rápido |
 | **Container** | Docker Alpine | 3.21 |
 
@@ -125,6 +126,16 @@ src/
 - **🚫 Límites**: Cola, duración, rate limiting
 - **💾 Persistencia**: Configuraciones guardadas automáticamente
 - **📊 Monitoreo**: Métricas de uso y rendimiento
+
+### ✅ Validaciones de Comandos (2026)
+- **🔇 dm_permission**: Comandos de música solo funcionan en servidores
+- **🎵 Estado de reproducción**: Validación antes de pause/resume/stop
+- **🔊 Volumen**: Advertencia para niveles > 100% (distorsión)
+- **🔌 Conexión de voz**: Verificación automática antes de comandos
+
+### 🧪 Testing
+- **18 tests unitarios** para config y storage
+- Ejecutar con: `cargo test --tests`
 
 ### 🍪 Configuración de Cookies (Anti-detección)
 - **📁 Ubicación**: `config/cookies.txt` (auto-generadas en Docker)

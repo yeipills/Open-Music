@@ -1,3 +1,7 @@
+//! Lavalink-specific command handlers
+//! These are used when Lavalink server is available
+#![allow(dead_code)]
+
 use anyhow::Result;
 use serenity::{
     all::{
@@ -6,7 +10,6 @@ use serenity::{
     },
     prelude::Context,
 };
-use tracing::{info};
 
 use crate::audio::lavalink_simple::LavalinkManager;
 use crate::ui::embeds::{create_success_embed, create_error_embed, create_info_embed};

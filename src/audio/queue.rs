@@ -13,6 +13,7 @@ pub struct QueueItem {
     pub title: String,
     pub artist: Option<String>,
     pub duration: Option<Duration>,
+    #[allow(dead_code)]
     pub thumbnail: Option<String>,
     pub url: String,
     pub requested_by: UserId,
