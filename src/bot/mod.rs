@@ -43,7 +43,6 @@ pub mod commands;
 pub mod events;
 pub mod handlers;
 pub mod hybrid_commands;
-pub mod lavalink_simple_commands;
 pub mod search;
 
 use crate::{audio::player::AudioPlayer, cache::MusicCache, config::Config, storage::JsonStorage, monitoring::MonitoringSystem};

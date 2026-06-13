@@ -64,7 +64,6 @@
 
 pub mod effects;
 pub mod hybrid_manager;
-pub mod lavalink_simple;
 pub mod player;
 pub mod queue;
 pub mod robust_queue;

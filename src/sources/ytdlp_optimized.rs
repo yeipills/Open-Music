@@ -60,7 +60,6 @@ impl YtDlpOptimizedClient {
         let mut cmd = tokio::process::Command::new("yt-dlp");
         cmd.args([
             "--print", "%(title)s|%(uploader)s|%(duration)s|%(thumbnail)s",
-            "--default-search", "ytsearch",
             "--no-playlist",
             "--socket-timeout", "30",
             "--retries", "3",
@@ -96,6 +95,8 @@ impl YtDlpOptimizedClient {
     /// Busca archivo de cookies disponible
     async fn find_cookies_file(&self) -> Result<Option<String>> {
         let cookies_paths = vec![
+            "/app/config/cookies.txt".to_string(),  // Docker container path
+            "./config/cookies.txt".to_string(),
             format!("{}/.config/yt-dlp/cookies.txt", std::env::var("HOME").unwrap_or_default()),
             "/home/openmusic/.config/yt-dlp/cookies.txt".to_string(),
             "/app/.config/yt-dlp/cookies.txt".to_string(),
@@ -152,31 +153,31 @@ impl MusicSource for YtDlpOptimizedClient {
     async fn search(&self, query: &str, limit: usize) -> Result<Vec<TrackSource>> {
         info!("🔍 Iniciando búsqueda yt-dlp optimizada: {}", query);
         
-        let search_query = format!("ytsearch{}:{}", limit.min(5), query);
+        // Usar URL de YouTube search en lugar de ytsearch extractor (más confiable)
+        let search_url = format!(
+            "https://www.youtube.com/results?search_query={}",
+            urlencoding::encode(query)
+        );
         
         // Buscar cookies para optimización
         let cookies_path = self.find_cookies_file().await.ok().flatten();
-        
+        let search_limit = limit.min(5);
+
         // Usar std::process en lugar de tokio::process para evitar problemas de señales
         let output = tokio::task::spawn_blocking(move || {
             let mut cmd = std::process::Command::new("yt-dlp");
             
             // Argumentos optimizados para máxima velocidad
             cmd.args([
-                "--print", "%(webpage_url)s|%(title)s|%(uploader)s|%(duration)s",
-                "--default-search", "ytsearch",
-                "--skip-download", 
-                "--no-playlist",
                 "--flat-playlist",
-                "--quiet",
+                "--print", "%(url)s|%(title)s|%(uploader)s|%(duration)s",
+                "--skip-download", 
                 "--no-warnings",
-                "--socket-timeout", "15", // Reducido de 30 a 15
-                "--retries", "2", // Reducido de 3 a 2
-                "--fragment-retries", "1", // Nuevo: solo 1 reintento de fragmento
-                "--abort-on-unavailable-fragment", // Nuevo: abortar rápidamente si no está disponible
-                "--extractor-args", "youtube:player_client=android_embedded", // Cliente más rápido
+                "--socket-timeout", "15",
+                "--retries", "2",
                 "--geo-bypass",
                 "--force-ipv4",
+                "--playlist-items", &format!("1:{}", search_limit),
             ]);
             
             // Agregar cookies si están disponibles para evitar throttling
@@ -184,7 +185,7 @@ impl MusicSource for YtDlpOptimizedClient {
                 cmd.args(["--cookies", &cookies]);
             }
             
-            cmd.arg(&search_query);
+            cmd.arg(&search_url);
             cmd.output()
         }).await;
 
@@ -277,7 +278,6 @@ impl MusicSource for YtDlpOptimizedClient {
             url,
             "--print", "%(webpage_url)s|%(title)s|%(uploader)s|%(duration)s|%(thumbnail)s",
             "--flat-playlist",
-            "--default-search", "ytsearch",
             "--socket-timeout", "30",
             "--quiet"
         ]);
@@ -349,8 +349,10 @@ impl TrackSource {
             anyhow::bail!("Solo se soportan URLs de YouTube");
         }
 
-        // Buscar cookies de forma síncrona (más rápido)
-        let cookies_option = [
+        // Buscar cookies
+        let cookies_path = [
+            "/app/config/cookies.txt".to_string(),  // Docker container path
+            "./config/cookies.txt".to_string(),
             format!("{}/.config/yt-dlp/cookies.txt", std::env::var("HOME").unwrap_or_default()),
             "/home/openmusic/.config/yt-dlp/cookies.txt".to_string(),
             "/app/.config/yt-dlp/cookies.txt".to_string(),
@@ -358,57 +360,63 @@ impl TrackSource {
         ]
         .iter()
         .find(|path| std::path::Path::new(path).exists())
-        .map(|path| format!("--cookies={}", path));
+        .cloned();
 
-        // Configurar variables de entorno que songbird respeta
-        if let Some(cookies) = cookies_option {
-            std::env::set_var("YTDL_COOKIES", cookies.replace("--cookies=", ""));
-        }
+        // Extraer URL de audio directamente con yt-dlp
+        let url = self.url();
+        let cookies = cookies_path.clone();
         
-        // Configurar opciones robustas contra detección de bots (2025)
-        std::env::set_var("YTDL_OPTIONS", 
-            "--format=bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best \
-             --extractor-args=youtube:player_client=android_creator,web;player_skip=dash,hls \
-             --user-agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36' \
-             --add-header='Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' \
-             --add-header='Accept-Language:en-us,en;q=0.5' \
-             --add-header='Accept-Encoding:gzip,deflate' \
-             --add-header='Connection:keep-alive' \
-             --no-check-certificate \
-             --no-playlist \
-             --quiet \
-             --no-warnings \
-             --geo-bypass \
-             --socket-timeout=30 \
-             --retries=5 \
-             --retry-sleep=3 \
-             --fragment-retries=5"
-        );
+        let audio_url = tokio::task::spawn_blocking(move || {
+            let mut cmd = std::process::Command::new("yt-dlp");
+            cmd.args([
+                "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
+                "-g",  // Solo obtener URL, no descargar
+                "--no-playlist",
+                "--no-check-certificate",
+                "--geo-bypass",
+                "--socket-timeout", "30",
+            ]);
+            
+            if let Some(cookies_file) = cookies {
+                cmd.args(["--cookies", &cookies_file]);
+            }
+            
+            cmd.arg(&url);
+            
+            let output = cmd.output()?;
+            
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                anyhow::bail!("yt-dlp falló: {}", stderr);
+            }
+            
+            let audio_url = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .last()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            
+            if audio_url.is_empty() {
+                anyhow::bail!("No se pudo obtener URL de audio");
+            }
+            
+            Ok::<String, anyhow::Error>(audio_url)
+        }).await??;
         
-        std::env::set_var("YTDL_USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
-
-        // Crear el cliente HTTP optimizado para songbird
+        info!("🔗 URL de audio extraída: {}...", &audio_url[..audio_url.len().min(80)]);
+        
+        // Crear cliente HTTP
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(20)) // Reducido de 30 a 20
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-            .tcp_keepalive(Duration::from_secs(30)) // Nuevo: keep-alive para reutilizar conexiones
-            .pool_idle_timeout(Duration::from_secs(60)) // Nuevo: pool de conexiones
-            .pool_max_idle_per_host(4) // Nuevo: máximo idle por host
+            .timeout(Duration::from_secs(60))
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
             .build()?;
 
-        // CAMBIO CRÍTICO: Usar songbird con configuración estándar
-        // songbird maneja internamente los argumentos de yt-dlp
-        let ytdl = songbird::input::YoutubeDl::new(client, self.url());
+        // Usar HttpRequest para streaming directo de la URL de audio
+        let request = songbird::input::HttpRequest::new(client, audio_url);
+        let input = Input::from(request);
         
-        // Verificar que el input sea válido antes de proceder
-        info!("🔍 Verificando que el input sea válido...");
-        let input = Input::from(ytdl);
-        
-        // Log adicional para debugging
-        info!("🎵 Input creado con configuración optimizada");
-        info!("🔗 URL procesada: {}", self.url());
-
-        info!("⚡ Input ultrarrápido creado para: {}", self.title());
+        info!("⚡ Input directo creado para: {}", self.title());
         Ok(input)
     }
 
