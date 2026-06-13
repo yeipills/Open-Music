@@ -59,6 +59,7 @@ impl YtDlpOptimizedClient {
         
         let mut cmd = tokio::process::Command::new("yt-dlp");
         cmd.args([
+            "--ignore-config",
             "--print", "%(title)s|%(uploader)s|%(duration)s|%(thumbnail)s",
             "--no-playlist",
             "--socket-timeout", "30",
@@ -169,9 +170,10 @@ impl MusicSource for YtDlpOptimizedClient {
             
             // Argumentos optimizados para máxima velocidad
             cmd.args([
+                "--ignore-config",
                 "--flat-playlist",
                 "--print", "%(url)s|%(title)s|%(uploader)s|%(duration)s",
-                "--skip-download", 
+                "--skip-download",
                 "--no-warnings",
                 "--socket-timeout", "15",
                 "--retries", "2",
@@ -276,6 +278,7 @@ impl MusicSource for YtDlpOptimizedClient {
         let mut cmd = tokio::process::Command::new("yt-dlp");
         cmd.args([
             url,
+            "--ignore-config",
             "--print", "%(webpage_url)s|%(title)s|%(uploader)s|%(duration)s|%(thumbnail)s",
             "--flat-playlist",
             "--socket-timeout", "30",
@@ -369,7 +372,10 @@ impl TrackSource {
         let audio_url = tokio::task::spawn_blocking(move || {
             let mut cmd = std::process::Command::new("yt-dlp");
             cmd.args([
-                "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
+                "--ignore-config",  // No heredar ~/.config/yt-dlp/config (flags de descarga)
+                // Priorizar Opus/48kHz (mismo códec y sample-rate que Discord): mejor
+                // calidad de origen y sin resample 44.1->48 que añadiría AAC/m4a.
+                "-f", "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best",
                 "-g",  // Solo obtener URL, no descargar
                 "--no-playlist",
                 "--no-check-certificate",

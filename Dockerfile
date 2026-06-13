@@ -134,15 +134,13 @@ RUN printf '%s\n' \
     '--fragment-retries 3' \
     '--http-chunk-size 10M' \
     '--concurrent-fragments 1' \
-    '--format "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[height<=720]"' \
+    '--format "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best"' \
     '--ignore-errors' \
     '--no-abort-on-error' \
     '--quiet' \
     '--no-warnings' \
     '--geo-bypass' \
     '--force-ipv4' \
-    '--skip-download' \
-    '--flat-playlist' \
     '--sleep-interval 1' \
     '--max-sleep-interval 3' \
     'EOF' \

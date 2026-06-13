@@ -384,7 +384,6 @@ pub struct AudioPlayerData {
 
 impl AudioPlayerData {
     /// Reproduce la siguiente canción en la cola
-    #[allow(dead_code)]
     async fn play_next(&self, guild_id: GuildId, handler: Arc<Mutex<Call>>) {
         // Obtener siguiente track de la cola
         let queue = self.queues.get(&guild_id);
@@ -451,24 +450,19 @@ impl AudioPlayerData {
 /// Handler para cuando un track termina normalmente
 pub struct TrackEndHandler {
     guild_id: GuildId,
-    #[allow(dead_code)]
     player: Arc<AudioPlayerData>,
-    #[allow(dead_code)]
     handler: Arc<Mutex<Call>>,
 }
 
 #[async_trait::async_trait]
 impl SongbirdEventHandler for TrackEndHandler {
     async fn act(&self, _ctx: &EventContext<'_>) -> Option<Event> {
-        tracing::warn!("🎵 *** EVENT HANDLER: TrackEndHandler llamado para guild {} ***", self.guild_id);
-        info!("🎵 Track terminado en guild {}, reproduciendo siguiente...", self.guild_id);
-        
-        // Remover track actual
+        info!("🎵 Track terminado en guild {}, avanzando al siguiente...", self.guild_id);
+
+        // Remover track actual y reproducir el siguiente de la cola (auto-avance)
         self.player.current_tracks.remove(&self.guild_id);
-        
-        // Simplemente notificar - el siguiente track se manejará automáticamente
-        info!("🎵 Track terminado, continuando con reproducción automática...");
-        
+        self.player.play_next(self.guild_id, self.handler.clone()).await;
+
         None
     }
 }
@@ -476,25 +470,19 @@ impl SongbirdEventHandler for TrackEndHandler {
 /// Handler para cuando hay un error en el track
 pub struct TrackErrorHandler {
     guild_id: GuildId,
-    #[allow(dead_code)]
     player: Arc<AudioPlayerData>,
-    #[allow(dead_code)]
     handler: Arc<Mutex<Call>>,
 }
 
 #[async_trait::async_trait]
 impl SongbirdEventHandler for TrackErrorHandler {
     async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
-        tracing::warn!("❌ *** EVENT HANDLER: TrackErrorHandler llamado para guild {} ***", self.guild_id);
         tracing::error!("❌ Error en track para guild {}: {:?}", self.guild_id, ctx);
-        info!("🔄 Intentando reproducir siguiente canción tras error...");
-        
-        // Remover track con error
+
+        // Remover track con error y saltar al siguiente de la cola
         self.player.current_tracks.remove(&self.guild_id);
-        
-        // Log error y continuar
-        info!("🔄 Error en track, saltando a siguiente canción...");
-        
+        self.player.play_next(self.guild_id, self.handler.clone()).await;
+
         None
     }
 }

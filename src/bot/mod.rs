@@ -42,7 +42,6 @@ use tracing::{error, info, warn};
 pub mod commands;
 pub mod events;
 pub mod handlers;
-pub mod hybrid_commands;
 pub mod search;
 
 use crate::{audio::player::AudioPlayer, cache::MusicCache, config::Config, storage::JsonStorage, monitoring::MonitoringSystem};
@@ -237,11 +236,24 @@ impl OpenMusicBot {
 
         match handler {
             Ok(connection_info) => {
+                // Fijar el bitrate del encoder Opus (calidad). Call deref-ea a Driver.
+                // Configurable vía OPUS_BITRATE; tope real = bitrate del canal de voz.
+                {
+                    let mut call = connection_info.lock().await;
+                    call.set_bitrate(songbird::driver::Bitrate::BitsPerSecond(
+                        self.config.opus_bitrate as i32,
+                    ));
+                }
+
                 // Guardar handler para uso futuro
                 self.voice_handlers
                     .insert(guild_id, connection_info.clone());
 
-                info!("🔊 Conectado al canal de voz en guild {}", guild_id);
+                info!(
+                    "🔊 Conectado al canal de voz en guild {} (Opus {} kbps)",
+                    guild_id,
+                    self.config.opus_bitrate / 1000
+                );
                 Ok(())
             }
             Err(e) => {

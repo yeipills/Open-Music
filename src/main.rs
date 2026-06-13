@@ -13,7 +13,6 @@ mod sources;
 mod storage;
 mod ui;
 
-use crate::audio::audio_manager::AudioManager;
 use crate::bot::OpenMusicBot;
 use crate::cache::MusicCache;
 use crate::config::Config;
@@ -71,15 +70,9 @@ async fn main() -> Result<()> {
         .register_songbird_with(songbird.clone())
         .await?;
 
-    // Inicializar sistema de audio (Songbird + yt-dlp)
-    info!("🎵 Inicializando sistema de audio...");
-    let audio_manager = AudioManager::new(songbird.clone(), Arc::new(config.clone()));
-
-    // Insertar el audio manager en el contexto
-    {
-        let mut data = client.data.write().await;
-        data.insert::<AudioManager>(Arc::new(audio_manager));
-    }
+    // El sistema de audio (cola, reproducción, efectos) vive en OpenMusicBot.player.
+    // Las conexiones de voz se gestionan vía songbird::get(ctx) en los handlers.
+    info!("🎵 Sistema de audio listo (AudioPlayer + Songbird + yt-dlp)");
 
     // Manejar shutdown graceful
     tokio::spawn(async move {
