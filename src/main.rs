@@ -13,7 +13,7 @@ mod sources;
 mod storage;
 mod ui;
 
-use crate::audio::hybrid_manager::HybridAudioManager;
+use crate::audio::audio_manager::AudioManager;
 use crate::bot::OpenMusicBot;
 use crate::cache::MusicCache;
 use crate::config::Config;
@@ -73,12 +73,12 @@ async fn main() -> Result<()> {
 
     // Inicializar sistema de audio (Songbird + yt-dlp)
     info!("🎵 Inicializando sistema de audio...");
-    let hybrid_manager = HybridAudioManager::new(songbird.clone(), Arc::new(config.clone()));
+    let audio_manager = AudioManager::new(songbird.clone(), Arc::new(config.clone()));
 
     // Insertar el audio manager en el contexto
     {
         let mut data = client.data.write().await;
-        data.insert::<HybridAudioManager>(Arc::new(hybrid_manager));
+        data.insert::<AudioManager>(Arc::new(audio_manager));
     }
 
     // Manejar shutdown graceful

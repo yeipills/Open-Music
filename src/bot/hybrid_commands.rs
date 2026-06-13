@@ -8,7 +8,7 @@ use serenity::{
 };
 use tracing::{error, info};
 
-use crate::audio::hybrid_manager::HybridAudioManager;
+use crate::audio::audio_manager::AudioManager;
 use crate::ui::embeds::{create_success_embed, create_error_embed, create_info_embed};
 
 pub async fn handle_hybrid_play(
@@ -23,9 +23,9 @@ pub async fn handle_hybrid_play(
     let channel_id = get_user_voice_channel(ctx, interaction, guild_id).await?;
 
     // Obtener el hybrid manager
-    let hybrid_manager = {
+    let audio_manager = {
         let data_read = ctx.data.read().await;
-        data_read.get::<HybridAudioManager>()
+        data_read.get::<AudioManager>()
             .ok_or_else(|| anyhow::anyhow!("Sistema de audio no está disponible"))?
             .clone()
     };
@@ -36,8 +36,8 @@ pub async fn handle_hybrid_play(
     )).await?;
 
     // Conectar al canal si no está conectado
-    if !hybrid_manager.is_connected(guild_id).await {
-        if let Err(e) = hybrid_manager.join_channel(guild_id, channel_id, interaction.user.id).await {
+    if !audio_manager.is_connected(guild_id).await {
+        if let Err(e) = audio_manager.join_channel(guild_id, channel_id, interaction.user.id).await {
             error!("Error al conectar al canal de voz: {:?}", e);
             let embed = create_error_embed("❌ Error de conexión", 
                 "No pude conectarme al canal de voz. Verifica que tengo permisos.");
@@ -50,7 +50,7 @@ pub async fn handle_hybrid_play(
     }
 
     // Reproducir la canción
-    match hybrid_manager.play(guild_id, query, interaction.user.id).await {
+    match audio_manager.play(guild_id, query, interaction.user.id).await {
         Ok(track_info) => {
             let duration_text = if let Some(duration) = track_info.duration() {
                 format!(" ({})", format_duration(duration))
@@ -94,14 +94,14 @@ pub async fn handle_hybrid_pause(
     let guild_id = interaction.guild_id
         .ok_or_else(|| anyhow::anyhow!("Este comando solo funciona en servidores"))?;
 
-    let hybrid_manager = {
+    let audio_manager = {
         let data_read = ctx.data.read().await;
-        data_read.get::<HybridAudioManager>()
+        data_read.get::<AudioManager>()
             .ok_or_else(|| anyhow::anyhow!("Sistema de audio no está disponible"))?
             .clone()
     };
 
-    match hybrid_manager.pause(guild_id).await {
+    match audio_manager.pause(guild_id).await {
         Ok(()) => {
             let embed = create_success_embed("⏸️ Pausado", 
                 "Reproducción pausada.");
@@ -127,14 +127,14 @@ pub async fn handle_hybrid_resume(
     let guild_id = interaction.guild_id
         .ok_or_else(|| anyhow::anyhow!("Este comando solo funciona en servidores"))?;
 
-    let hybrid_manager = {
+    let audio_manager = {
         let data_read = ctx.data.read().await;
-        data_read.get::<HybridAudioManager>()
+        data_read.get::<AudioManager>()
             .ok_or_else(|| anyhow::anyhow!("Sistema de audio no está disponible"))?
             .clone()
     };
 
-    match hybrid_manager.resume(guild_id).await {
+    match audio_manager.resume(guild_id).await {
         Ok(()) => {
             let embed = create_success_embed("▶️ Reanudado", 
                 "Reproducción reanudada.");
@@ -160,14 +160,14 @@ pub async fn handle_hybrid_skip(
     let guild_id = interaction.guild_id
         .ok_or_else(|| anyhow::anyhow!("Este comando solo funciona en servidores"))?;
 
-    let hybrid_manager = {
+    let audio_manager = {
         let data_read = ctx.data.read().await;
-        data_read.get::<HybridAudioManager>()
+        data_read.get::<AudioManager>()
             .ok_or_else(|| anyhow::anyhow!("Sistema de audio no está disponible"))?
             .clone()
     };
 
-    match hybrid_manager.skip(guild_id).await {
+    match audio_manager.skip(guild_id).await {
         Ok(()) => {
             let embed = create_success_embed("⏭️ Saltado", 
                 "Canción saltada.");
@@ -193,14 +193,14 @@ pub async fn handle_hybrid_stop(
     let guild_id = interaction.guild_id
         .ok_or_else(|| anyhow::anyhow!("Este comando solo funciona en servidores"))?;
 
-    let hybrid_manager = {
+    let audio_manager = {
         let data_read = ctx.data.read().await;
-        data_read.get::<HybridAudioManager>()
+        data_read.get::<AudioManager>()
             .ok_or_else(|| anyhow::anyhow!("Sistema de audio no está disponible"))?
             .clone()
     };
 
-    match hybrid_manager.stop(guild_id).await {
+    match audio_manager.stop(guild_id).await {
         Ok(()) => {
             let embed = create_success_embed("⏹️ Detenido", 
                 "Reproducción detenida.");
@@ -226,14 +226,14 @@ pub async fn handle_hybrid_leave(
     let guild_id = interaction.guild_id
         .ok_or_else(|| anyhow::anyhow!("Este comando solo funciona en servidores"))?;
 
-    let hybrid_manager = {
+    let audio_manager = {
         let data_read = ctx.data.read().await;
-        data_read.get::<HybridAudioManager>()
+        data_read.get::<AudioManager>()
             .ok_or_else(|| anyhow::anyhow!("Sistema de audio no está disponible"))?
             .clone()
     };
 
-    match hybrid_manager.leave_channel(guild_id).await {
+    match audio_manager.leave_channel(guild_id).await {
         Ok(()) => {
             let embed = create_success_embed("👋 Desconectado", 
                 "Me he desconectado del canal de voz.");
@@ -259,14 +259,14 @@ pub async fn handle_hybrid_nowplaying(
     let guild_id = interaction.guild_id
         .ok_or_else(|| anyhow::anyhow!("Este comando solo funciona en servidores"))?;
 
-    let hybrid_manager = {
+    let audio_manager = {
         let data_read = ctx.data.read().await;
-        data_read.get::<HybridAudioManager>()
+        data_read.get::<AudioManager>()
             .ok_or_else(|| anyhow::anyhow!("Sistema de audio no está disponible"))?
             .clone()
     };
 
-    match hybrid_manager.now_playing(guild_id).await {
+    match audio_manager.now_playing(guild_id).await {
         Ok(Some(info)) => {
             let mut description = format!("**{}**", info.title);
             

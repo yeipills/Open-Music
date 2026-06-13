@@ -63,7 +63,7 @@
 //! ```
 
 pub mod effects;
-pub mod hybrid_manager;
+pub mod audio_manager;
 pub mod player;
 pub mod queue;
 pub mod robust_queue;

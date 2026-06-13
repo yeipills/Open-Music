@@ -12,7 +12,7 @@ use crate::sources::{TrackSource, YtDlpOptimizedClient, MusicSource};
 use crate::config::Config;
 
 /// Manager de audio: conexiones de voz Songbird + extracción yt-dlp
-pub struct HybridAudioManager {
+pub struct AudioManager {
     /// Songbird manager para conexiones de voz reales
     songbird: Arc<Songbird>,
     
@@ -26,9 +26,9 @@ pub struct HybridAudioManager {
     config: Arc<Config>,
 }
 
-impl HybridAudioManager {
+impl AudioManager {
     pub fn new(songbird: Arc<Songbird>, config: Arc<Config>) -> Self {
-        info!("🎵 Inicializando HybridAudioManager");
+        info!("🎵 Inicializando AudioManager");
         
         Self {
             songbird,
@@ -255,7 +255,7 @@ impl HybridAudioManager {
     }
 }
 
-impl Clone for HybridAudioManager {
+impl Clone for AudioManager {
     fn clone(&self) -> Self {
         Self {
             songbird: Arc::clone(&self.songbird),
@@ -266,8 +266,8 @@ impl Clone for HybridAudioManager {
     }
 }
 
-impl TypeMapKey for HybridAudioManager {
-    type Value = Arc<HybridAudioManager>;
+impl TypeMapKey for AudioManager {
+    type Value = Arc<AudioManager>;
 }
 
 /// Metadatos del track (usado para tracking interno)
@@ -298,7 +298,7 @@ pub struct NowPlayingInfo {
 struct TrackEndHandler {
     guild_id: GuildId,
     #[allow(dead_code)]
-    manager: Arc<HybridAudioManager>,
+    manager: Arc<AudioManager>,
 }
 
 #[async_trait]

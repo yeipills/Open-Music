@@ -14,7 +14,7 @@ use parking_lot::Mutex;
 use tracing::{info, warn};
 
 use crate::{
-    audio::{hybrid_manager::HybridAudioManager},
+    audio::{audio_manager::AudioManager},
     bot::{hybrid_commands, OpenMusicBot},
     sources::{MusicSource, TrackSource, SourceType},
     ui::{buttons, embeds},
@@ -155,7 +155,7 @@ pub async fn handle_command(
     // Verificar si el sistema híbrido está disponible
     let has_hybrid = {
         let data_read = ctx.data.read().await;
-        data_read.get::<HybridAudioManager>().is_some()
+        data_read.get::<AudioManager>().is_some()
     };
 
     match command_name {
