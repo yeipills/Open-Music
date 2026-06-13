@@ -144,7 +144,6 @@ impl Config {
     /// # Ok(())
     /// # }
     /// ```
-    #[allow(dead_code)]
     pub fn validate(&self) -> Result<()> {
         // Validate audio settings
         if self.default_volume < 0.0 || self.default_volume > 2.0 {
@@ -188,7 +187,6 @@ impl Config {
     /// # Returns
     ///
     /// A formatted string suitable for logging or debugging.
-    #[allow(dead_code)]
     pub fn summary(&self) -> String {
         format!(
             "Config Summary:\n  \

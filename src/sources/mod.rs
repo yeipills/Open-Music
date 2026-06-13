@@ -119,61 +119,23 @@ impl TrackSource {
         self
     }
 
-    /// Obtiene el input de audio optimizado usando solo yt-dlp + FFmpeg
-    pub async fn get_input(&self) -> Result<Input> {
-        info!("🎵 Creando input optimizado para: {}", self.title);
-        
-        // Intentar el método optimizado primero
-        match self.get_optimized_input().await {
-            Ok(input) => {
-                info!("✅ Input optimizado exitoso para: {}", self.title);
-                Ok(input)
-            }
+    /// Obtiene el input de audio con efectos (yt-dlp | ffmpeg `-af <filter>`).
+    ///
+    /// `filter` es la cadena de filtros ffmpeg construida por `AudioEffects::build_filter`
+    /// (loudnorm + EQ del preset). Si la cadena ffmpeg falla, cae a un fallback sin efectos.
+    pub async fn get_input(&self, filter: &str) -> Result<Input> {
+        info!("🎵 Creando input para: {}", self.title);
+
+        // Camino principal: yt-dlp | ffmpeg con loudnorm + EQ reales
+        match self.get_ffmpeg_input(filter).await {
+            Ok(input) => Ok(input),
             Err(e) => {
-                tracing::warn!("⚠️ Método optimizado falló: {:?}, probando fallback 1...", e);
-                
-                // Intentar método simple como fallback
-                match self.get_simple_input().await {
-                    Ok(input) => {
-                        info!("✅ Input fallback 1 exitoso para: {}", self.title);
-                        Ok(input)
-                    }
-                    Err(e2) => {
-                        tracing::warn!("⚠️ Fallback 1 falló: {:?}, probando fallback 2...", e2);
-                        
-                        // Como último recurso, intentar con configuración mínima
-                        self.get_minimal_input().await
-                    }
-                }
+                tracing::warn!("⚠️ Cadena ffmpeg falló: {:?}, fallback sin efectos...", e);
+                // Fallback sin efectos: streaming directo vía songbird YoutubeDl
+                self.get_simple_input().await
             }
         }
     }
-
-    /// Método de último recurso con configuración ultra-mínima
-    pub async fn get_minimal_input(&self) -> Result<Input> {
-        info!("🆘 Usando método mínimo de último recurso para: {}", self.title);
-        
-        // Verificar que sea URL de YouTube
-        if !self.url().contains("youtube.com") && !self.url().contains("youtu.be") {
-            anyhow::bail!("Solo se soportan URLs de YouTube");
-        }
-
-        // Configuración ultra básica sin headers especiales
-        std::env::set_var("YTDL_OPTIONS", "--format=bestaudio --no-check-certificate --quiet --ignore-errors");
-        
-        // Cliente HTTP ultra simple
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .user_agent("Mozilla/5.0")
-            .build()?;
-
-        let ytdl = songbird::input::YoutubeDl::new(client, self.url());
-        let input = Input::from(ytdl);
-
-        info!("✅ Input mínimo creado para: {}", self.title);
-        Ok(input)
-    }
-
 }
 
 /// Tipos de fuentes de música

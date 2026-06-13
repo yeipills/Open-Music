@@ -35,6 +35,7 @@ async fn main() -> Result<()> {
 
     // Cargar configuración
     let config = Config::load()?;
+    info!("⚙️ {}", config.summary());
 
     // Manejar health check si es necesario
     if std::env::args().any(|arg| arg == "--health-check") {

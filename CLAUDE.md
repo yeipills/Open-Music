@@ -16,10 +16,10 @@
   songbird = "0.5.0" (features: builtin-queue, serenity, driver)
 
   # Audio Processing
-  symphonia = "0.5.4" (mp3, aac, flac, wav, ogg, isomp4)
+  symphonia = "0.5.5" (mp3, aac, flac, wav, ogg, isomp4)  # decodificación (vía songbird)
   audiopus = "0.3.0-rc.0"
-  fundsp = "0.20"
-  rubato = "0.15.0"
+  # EQ y loudness normalization se hacen con filtros ffmpeg (-af), no con crates DSP.
+  # Pipeline y calidad documentados en docs/AUDIO_PIPELINE.md y docs/AUDIO_QUALITY.md.
 
   # Async Runtime
   tokio = "1.45" (features: full, rt-multi-thread)

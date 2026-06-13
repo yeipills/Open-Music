@@ -78,9 +78,10 @@ impl AudioPlayer {
         if let Some(track_source) = next_track {
             info!("▶️ Iniciando reproducción de: {}", track_source.title());
             
-            // Obtener input de audio
+            // Obtener input de audio con efectos (loudnorm + EQ del preset actual)
             info!("🔄 Obteniendo input de audio...");
-            let input = match track_source.get_input().await {
+            let filter = self.effects.build_filter();
+            let input = match track_source.get_input(&filter).await {
                 Ok(input) => {
                     info!("✅ Input obtenido exitosamente");
                     input
@@ -90,24 +91,11 @@ impl AudioPlayer {
                     anyhow::bail!("Error obteniendo input: {:?}", e);
                 }
             };
-            
-            // Procesar con efectos si están activos
-            info!("🎛️ Procesando efectos...");
-            let processed_input = match self.effects.process_input(input).await {
-                Ok(input) => {
-                    info!("✅ Efectos procesados");
-                    input
-                }
-                Err(e) => {
-                    tracing::error!("❌ Error procesando efectos: {:?}", e);
-                    anyhow::bail!("Error procesando efectos: {:?}", e);
-                }
-            };
 
             // Reproducir
             info!("🎵 Iniciando reproducción en Discord...");
             let mut call = handler.lock().await;
-            let track_handle = call.play_input(processed_input);
+            let track_handle = call.play_input(input);
             
             // Configurar eventos
             self.setup_track_events(guild_id, &track_handle, handler.clone()).await;
@@ -396,21 +384,13 @@ impl AudioPlayerData {
             if let Some(track_source) = next_track {
                 info!("🎵 Reproduciendo siguiente: {} en guild {}", track_source.title(), guild_id);
                 
-                // Crear input
-                match track_source.get_input().await {
+                // Crear input con efectos (loudnorm + EQ del preset actual)
+                let filter = self.effects.build_filter();
+                match track_source.get_input(&filter).await {
                     Ok(input) => {
-                        // Aplicar efectos
-                        let processed_input = match self.effects.process_input(input).await {
-                            Ok(input) => input,
-                            Err(e) => {
-                                tracing::error!("❌ Error procesando efectos: {:?}", e);
-                                return; // Skip this track if effects fail
-                            }
-                        };
-                        
                         // Reproducir
                         let mut call = handler.lock().await;
-                        let track_handle = call.play_input(processed_input);
+                        let track_handle = call.play_input(input);
                         
                         // Configurar eventos recursivamente
                         let end_handler = TrackEndHandler {

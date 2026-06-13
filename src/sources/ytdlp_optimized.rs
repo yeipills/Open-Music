@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use serenity::model::id::UserId;
 use songbird::input::Input;
 use std::time::Duration;
-use tracing::{info, warn, error};
+use tracing::{debug, info, warn, error};
 
 use super::{MusicSource, TrackSource, SourceType};
 
@@ -206,12 +206,12 @@ impl MusicSource for YtDlpOptimizedClient {
         let results = String::from_utf8_lossy(&output.stdout);
         let mut tracks = Vec::new();
 
-        info!("📋 Procesando {} líneas de resultados", results.lines().count());
+        debug!("📋 Procesando {} líneas de resultados", results.lines().count());
         for (i, line) in results.lines().take(limit).enumerate() {
-            info!("📄 Línea {}: {}", i + 1, line);
+            debug!("📄 Línea {}: {}", i + 1, line);
             let parts: Vec<&str> = line.split('|').collect();
-            info!("🔗 Partes: {:?}", parts);
-            
+            debug!("🔗 Partes: {:?}", parts);
+
             if parts.len() >= 4 {
                 let track = TrackSource::new(
                     parts[1].to_string(), // title
@@ -226,7 +226,7 @@ impl MusicSource for YtDlpOptimizedClient {
                         .unwrap_or(Duration::from_secs(0))
                 );
 
-                info!("✅ Track creado: {}", track.title());
+                debug!("✅ Track creado: {}", track.title());
                 tracks.push(track);
             } else {
                 warn!("⚠️ Línea con formato incorrecto: {}", line);
@@ -343,18 +343,21 @@ struct VideoInfo {
 }
 
 impl TrackSource {
-    /// Crea input optimizado usando yt-dlp + FFmpeg streaming directo
-    pub async fn get_optimized_input(&self) -> Result<Input> {
-        info!("🎵 Creando input ultrarrápido para: {}", self.title());
-        
-        // Verificar que sea URL de YouTube
+    /// Input principal con efectos: cadena `yt-dlp -o - | ffmpeg -af <filter>`.
+    ///
+    /// yt-dlp streamea el mejor audio Opus al stdout; ffmpeg aplica los filtros
+    /// (`loudnorm` + EQ) y entrega WAV/PCM que songbird decodifica. Una sola pasada
+    /// de transcode. Encadenar los dos procesos evita el problema de URLs `-g` que
+    /// expiran. Devuelve un `Input` vía `ChildContainer`.
+    pub async fn get_ffmpeg_input(&self, filter: &str) -> Result<Input> {
+        use std::process::{Command, Stdio};
+
         if !YtDlpOptimizedClient::is_youtube_url(&self.url()) {
             anyhow::bail!("Solo se soportan URLs de YouTube");
         }
 
-        // Buscar cookies
         let cookies_path = [
-            "/app/config/cookies.txt".to_string(),  // Docker container path
+            "/app/config/cookies.txt".to_string(),
             "./config/cookies.txt".to_string(),
             format!("{}/.config/yt-dlp/cookies.txt", std::env::var("HOME").unwrap_or_default()),
             "/home/openmusic/.config/yt-dlp/cookies.txt".to_string(),
@@ -365,64 +368,60 @@ impl TrackSource {
         .find(|path| std::path::Path::new(path).exists())
         .cloned();
 
-        // Extraer URL de audio directamente con yt-dlp
         let url = self.url();
-        let cookies = cookies_path.clone();
-        
-        let audio_url = tokio::task::spawn_blocking(move || {
-            let mut cmd = std::process::Command::new("yt-dlp");
-            cmd.args([
-                "--ignore-config",  // No heredar ~/.config/yt-dlp/config (flags de descarga)
-                // Priorizar Opus/48kHz (mismo códec y sample-rate que Discord): mejor
-                // calidad de origen y sin resample 44.1->48 que añadiría AAC/m4a.
+        let filter = filter.to_string();
+        let title = self.title();
+
+        let input = tokio::task::spawn_blocking(move || -> Result<Input> {
+            // 1) yt-dlp streamea el contenedor de mejor audio a stdout
+            let mut ytdlp_cmd = Command::new("yt-dlp");
+            ytdlp_cmd.args([
+                "--ignore-config",
                 "-f", "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best",
-                "-g",  // Solo obtener URL, no descargar
+                "-o", "-",
                 "--no-playlist",
                 "--no-check-certificate",
                 "--geo-bypass",
-                "--socket-timeout", "30",
+                "--force-ipv4",
+                "--quiet",
             ]);
-            
-            if let Some(cookies_file) = cookies {
-                cmd.args(["--cookies", &cookies_file]);
+            if let Some(ref c) = cookies_path {
+                ytdlp_cmd.args(["--cookies", c]);
             }
-            
-            cmd.arg(&url);
-            
-            let output = cmd.output()?;
-            
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                anyhow::bail!("yt-dlp falló: {}", stderr);
-            }
-            
-            let audio_url = String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .last()
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            
-            if audio_url.is_empty() {
-                anyhow::bail!("No se pudo obtener URL de audio");
-            }
-            
-            Ok::<String, anyhow::Error>(audio_url)
-        }).await??;
-        
-        info!("🔗 URL de audio extraída: {}...", &audio_url[..audio_url.len().min(80)]);
-        
-        // Crear cliente HTTP
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(60))
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
-            .build()?;
+            ytdlp_cmd.arg(&url);
+            ytdlp_cmd.stdout(Stdio::piped()).stderr(Stdio::null());
 
-        // Usar HttpRequest para streaming directo de la URL de audio
-        let request = songbird::input::HttpRequest::new(client, audio_url);
-        let input = Input::from(request);
-        
-        info!("⚡ Input directo creado para: {}", self.title());
+            let mut ytdlp = ytdlp_cmd.spawn()
+                .map_err(|e| anyhow::anyhow!("no se pudo lanzar yt-dlp: {}", e))?;
+            let ytdlp_stdout = ytdlp.stdout.take()
+                .ok_or_else(|| anyhow::anyhow!("yt-dlp sin stdout"))?;
+
+            // 2) ffmpeg aplica filtros (loudnorm + EQ) y produce WAV a stdout
+            let mut ffmpeg_cmd = Command::new("ffmpeg");
+            ffmpeg_cmd.args([
+                "-i", "pipe:0",
+                "-af", &filter,
+                "-ac", "2",
+                "-ar", "48000",
+                "-f", "wav",
+                "pipe:1",
+            ]);
+            ffmpeg_cmd
+                .stdin(Stdio::from(ytdlp_stdout))
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null());
+
+            let ffmpeg = ffmpeg_cmd.spawn()
+                .map_err(|e| anyhow::anyhow!("no se pudo lanzar ffmpeg: {}", e))?;
+
+            // ChildContainer lee del último proceso (ffmpeg); mantiene yt-dlp vivo
+            // y lo limpia al hacer drop.
+            let container = songbird::input::ChildContainer::new(vec![ytdlp, ffmpeg]);
+            Ok(Input::from(container))
+        })
+        .await??;
+
+        info!("🎚️ Input con efectos (ffmpeg) creado para: {}", title);
         Ok(input)
     }
 
