@@ -190,10 +190,12 @@ impl YtDlpOptimizedClient {
     /// Lanza yt-dlp en streaming *lazy* para una playlist: emite una línea por
     /// track a medida que los procesa, sin esperar a listar toda la lista. No pide
     /// thumbnail (se resuelve al reproducir cada track) para acelerar la aparición.
+    /// `limit` corta la cantidad de tracks (para mixes/radios infinitos `list=RD`).
     /// Formato por línea: `url|title|uploader|duration`.
     pub fn spawn_playlist_stream(
         url: &str,
         cookies: Option<&str>,
+        limit: Option<usize>,
     ) -> std::io::Result<tokio::process::Child> {
         let pot_arg = pot_extractor_arg();
         let mut cmd = tokio::process::Command::new("yt-dlp");
@@ -209,6 +211,10 @@ impl YtDlpOptimizedClient {
             "--socket-timeout", "30",
             "--extractor-args", &pot_arg,
         ]);
+        // Tope para mixes/radios infinitos (ej. list=RD): solo los primeros N.
+        if let Some(n) = limit {
+            cmd.args(["--playlist-items", &format!("1:{n}")]);
+        }
         if let Some(c) = cookies {
             cmd.args(["--cookies", c]);
         }

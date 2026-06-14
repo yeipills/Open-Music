@@ -308,11 +308,13 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
     let is_url = query.starts_with("http");
     // Detectar playlist por el parámetro `list=` (cubre tanto
     // youtube.com/playlist?list=... como watch?v=...&list=..., la forma más
-    // común de compartir una lista desde un video). Excluir los mixes/radios
-    // autogenerados (list=RD...), que son infinitos: tratarlos como video suelto.
+    // común de compartir una lista desde un video).
     let has_list = query.contains("list=");
+    // Los mixes/radios autogenerados (list=RD/RDMM/UL...) son infinitos: se
+    // cargan pero con tope (playlist_limit) para no encolar miles de temas.
     let is_radio_mix = query.contains("list=RD") || query.contains("list=UL");
-    let is_playlist = is_url && has_list && !is_radio_mix;
+    let is_playlist = is_url && has_list;
+    let playlist_limit: Option<usize> = if is_radio_mix { Some(50) } else { None };
 
     if is_playlist {
         // Es una playlist de YouTube
@@ -322,7 +324,7 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
         // el resto en segundo plano. No se espera a listar toda la lista, así la
         // música aparece casi al instante sin importar el tamaño de la playlist.
         let cookies = YtDlpOptimizedClient::cookies_working_copy();
-        let mut child = match YtDlpOptimizedClient::spawn_playlist_stream(query, cookies.as_deref()) {
+        let mut child = match YtDlpOptimizedClient::spawn_playlist_stream(query, cookies.as_deref(), playlist_limit) {
             Ok(c) => c,
             Err(e) => {
                 warn!("No se pudo lanzar yt-dlp para playlist: {}", e);
