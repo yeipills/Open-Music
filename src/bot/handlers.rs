@@ -11,11 +11,12 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::time::Instant;
 use parking_lot::Mutex;
+use tokio::io::AsyncBufReadExt;
 use tracing::{info, warn};
 
 use crate::{
     bot::OpenMusicBot,
-    sources::{MusicSource, TrackSource, SourceType},
+    sources::{MusicSource, TrackSource, SourceType, YtDlpOptimizedClient},
     ui::{buttons, embeds},
 };
 
@@ -310,32 +311,45 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
     if is_playlist {
         // Es una playlist de YouTube
         info!("📋 Detectada playlist de YouTube: {}", query);
-        
-        // Usar cliente optimizado para playlists
-        let ytdlp_client = crate::sources::YtDlpOptimizedClient::new();
-        let playlist_tracks = ytdlp_client.get_playlist(query).await?;
-        
-        if playlist_tracks.is_empty() {
-            anyhow::bail!("La playlist está vacía o no se pudo acceder");
-        }
-        
-        info!("📋 Playlist cargada con {} canciones", playlist_tracks.len());
-        
-        // Agregar todas las canciones a la cola
-        let queue = bot.player.get_or_create_queue(guild_id);
-        let mut added_count = 0;
-        
-        for track in playlist_tracks {
-            let track_with_user = track.with_requested_by(command.user.id);
-            
-            let mut q = queue.write();
-            if let Ok(()) = q.add_track(track_with_user) {
-                added_count += 1;
+
+        // Streaming lazy: reproducir el primer track apenas se extrae y encolar
+        // el resto en segundo plano. No se espera a listar toda la lista, así la
+        // música aparece casi al instante sin importar el tamaño de la playlist.
+        let cookies = YtDlpOptimizedClient::find_cookies_path();
+        let mut child = match YtDlpOptimizedClient::spawn_playlist_stream(query, cookies.as_deref()) {
+            Ok(c) => c,
+            Err(e) => {
+                warn!("No se pudo lanzar yt-dlp para playlist: {}", e);
+                anyhow::bail!("No se pudo acceder a la playlist");
             }
-            drop(q); // Liberar el lock antes de la siguiente iteración
+        };
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("yt-dlp sin stdout"))?;
+        let mut lines = tokio::io::BufReader::new(stdout).lines();
+
+        let queue = bot.player.get_or_create_queue(guild_id);
+        let user_id = command.user.id;
+
+        // Leer hasta el primer track válido del stream
+        let mut first_track: Option<TrackSource> = None;
+        while let Ok(Some(line)) = lines.next_line().await {
+            if let Some(t) = YtDlpOptimizedClient::parse_playlist_line(&line, user_id) {
+                first_track = Some(t);
+                break;
+            }
         }
-        
-        // Iniciar reproducción si no hay nada reproduciéndose
+        let first_track = match first_track {
+            Some(t) => t,
+            None => anyhow::bail!("La playlist está vacía o no se pudo acceder"),
+        };
+
+        // Encolar el primero y empezar a reproducir YA
+        {
+            let mut q = queue.write();
+            let _ = q.add_track(first_track.clone());
+        }
         if !bot.player.is_playing(guild_id).await {
             if let Some(handler) = bot.get_voice_handler(guild_id) {
                 if let Err(e) = bot.player.play_next(guild_id, handler).await {
@@ -343,11 +357,10 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
                 }
             }
         }
-        
-        // Responder con confirmación de playlist mejorada
-        let embed = embeds::create_playlist_added_embed(added_count, query);
+
+        // Responder de inmediato con el primer track (el resto se carga detrás)
+        let embed = embeds::create_track_added_embed(&first_track);
         let playlist_buttons = crate::ui::buttons::create_playlist_buttons();
-        
         use serenity::builder::EditInteractionResponse;
         command
             .edit_response(&ctx.http, EditInteractionResponse::new()
@@ -355,10 +368,24 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
                 .components(playlist_buttons)
             )
             .await?;
-            
+
+        // Encolar el RESTO de la playlist en segundo plano
+        let queue_bg = queue.clone();
+        tokio::spawn(async move {
+            let mut count = 1usize;
+            while let Ok(Some(line)) = lines.next_line().await {
+                if let Some(t) = YtDlpOptimizedClient::parse_playlist_line(&line, user_id) {
+                    queue_bg.write().add_track(t).ok();
+                    count += 1;
+                }
+            }
+            let _ = child.wait().await;
+            info!("📋 Playlist cargada completa: {} canciones encoladas", count);
+        });
+
         return Ok(());
-        
-    } 
+
+    }
     
     // Manejar canciones individuales (URL o búsqueda) con sistema optimizado
     let mut track_source = if is_url {

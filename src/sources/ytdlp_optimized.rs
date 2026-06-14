@@ -159,6 +159,71 @@ impl YtDlpOptimizedClient {
     pub fn is_youtube_url(url: &str) -> bool {
         url.contains("youtube.com") || url.contains("youtu.be") || url.contains("music.youtube.com")
     }
+
+    /// Busca un archivo de cookies en las rutas conocidas (versión síncrona).
+    pub fn find_cookies_path() -> Option<String> {
+        [
+            "/app/config/cookies.txt".to_string(),
+            "./config/cookies.txt".to_string(),
+            format!("{}/.config/yt-dlp/cookies.txt", std::env::var("HOME").unwrap_or_default()),
+            "/home/openmusic/.config/yt-dlp/cookies.txt".to_string(),
+            "/app/.config/yt-dlp/cookies.txt".to_string(),
+            "./cookies.txt".to_string(),
+        ]
+        .into_iter()
+        .find(|p| std::path::Path::new(p).exists())
+    }
+
+    /// Lanza yt-dlp en streaming *lazy* para una playlist: emite una línea por
+    /// track a medida que los procesa, sin esperar a listar toda la lista. No pide
+    /// thumbnail (se resuelve al reproducir cada track) para acelerar la aparición.
+    /// Formato por línea: `url|title|uploader|duration`.
+    pub fn spawn_playlist_stream(
+        url: &str,
+        cookies: Option<&str>,
+    ) -> std::io::Result<tokio::process::Child> {
+        let pot_arg = pot_extractor_arg();
+        let mut cmd = tokio::process::Command::new("yt-dlp");
+        cmd.args([
+            url,
+            "--ignore-config",
+            "--flat-playlist",
+            "--lazy-playlist",
+            "--print", "%(url)s|%(title)s|%(uploader)s|%(duration)s",
+            "--no-warnings",
+            "--socket-timeout", "30",
+            "--extractor-args", &pot_arg,
+        ]);
+        if let Some(c) = cookies {
+            cmd.args(["--cookies", c]);
+        }
+        cmd.stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null());
+        cmd.spawn()
+    }
+
+    /// Parsea una línea del stream de playlist (`url|title|uploader|duration`).
+    pub fn parse_playlist_line(line: &str, requested_by: UserId) -> Option<TrackSource> {
+        let parts: Vec<&str> = line.split('|').collect();
+        if parts.len() < 2 || parts[0].is_empty() || parts[0] == "NA" {
+            return None;
+        }
+        let mut track = TrackSource::new(
+            parts[1].to_string(),
+            parts[0].to_string(),
+            SourceType::YouTube,
+            requested_by,
+        );
+        if let Some(artist) = parts.get(2) {
+            if !artist.is_empty() && *artist != "NA" {
+                track = track.with_artist(artist.to_string());
+            }
+        }
+        if let Some(dur) = parts.get(3).and_then(|s| s.parse::<f64>().ok()) {
+            track = track.with_duration(Duration::from_secs_f64(dur));
+        }
+        Some(track)
+    }
 }
 
 #[async_trait]
@@ -288,14 +353,16 @@ impl MusicSource for YtDlpOptimizedClient {
 
     async fn get_playlist(&self, url: &str) -> Result<Vec<TrackSource>> {
         let cookies_path = self.find_cookies_file().await?;
-        
+
         let pot_arg = pot_extractor_arg();
         let mut cmd = tokio::process::Command::new("yt-dlp");
+        // Sin thumbnail (se resuelve al reproducir) + lazy para emitir antes.
         cmd.args([
             url,
             "--ignore-config",
-            "--print", "%(webpage_url)s|%(title)s|%(uploader)s|%(duration)s|%(thumbnail)s",
+            "--print", "%(url)s|%(title)s|%(uploader)s|%(duration)s",
             "--flat-playlist",
+            "--lazy-playlist",
             "--socket-timeout", "30",
             "--extractor-args", &pot_arg,
             "--quiet"
@@ -313,28 +380,10 @@ impl MusicSource for YtDlpOptimizedClient {
         }
 
         let results = String::from_utf8_lossy(&output.stdout);
-        let mut tracks = Vec::new();
-
-        for line in results.lines() {
-            let parts: Vec<&str> = line.split('|').collect();
-            if parts.len() >= 5 {
-                let track = TrackSource::new(
-                    parts[1].to_string(),
-                    parts[0].to_string(),
-                    SourceType::YouTube,
-                    UserId::new(1),
-                )
-                .with_artist(parts[2].to_string())
-                .with_duration(
-                    parts[3].parse::<f64>().ok()
-                        .map(|d| Duration::from_secs_f64(d))
-                        .unwrap_or(Duration::from_secs(0))
-                )
-                .with_thumbnail(parts[4].to_string());
-
-                tracks.push(track);
-            }
-        }
+        let tracks: Vec<TrackSource> = results
+            .lines()
+            .filter_map(|line| Self::parse_playlist_line(line, UserId::new(1)))
+            .collect();
 
         info!("🎵 Playlist extraída con {} tracks", tracks.len());
         Ok(tracks)
@@ -372,17 +421,7 @@ impl TrackSource {
             anyhow::bail!("Solo se soportan URLs de YouTube");
         }
 
-        let cookies_path = [
-            "/app/config/cookies.txt".to_string(),
-            "./config/cookies.txt".to_string(),
-            format!("{}/.config/yt-dlp/cookies.txt", std::env::var("HOME").unwrap_or_default()),
-            "/home/openmusic/.config/yt-dlp/cookies.txt".to_string(),
-            "/app/.config/yt-dlp/cookies.txt".to_string(),
-            "./cookies.txt".to_string(),
-        ]
-        .iter()
-        .find(|path| std::path::Path::new(path).exists())
-        .cloned();
+        let cookies_path = YtDlpOptimizedClient::find_cookies_path();
 
         let url = self.url();
         let filter = filter.to_string();
@@ -400,6 +439,9 @@ impl TrackSource {
                 "--no-check-certificate",
                 "--geo-bypass",
                 "--force-ipv4",
+                // Acelerar el arranque: no hacer HEAD requests para verificar
+                // formatos (ya elegimos uno concreto con -f).
+                "--no-check-formats",
                 "--extractor-args", &pot_arg,
                 "--quiet",
             ]);

@@ -123,49 +123,6 @@ pub fn create_track_added_embed(track: &TrackSource) -> CreateEmbed {
     embed
 }
 
-/// Crea un embed para mostrar que una playlist fue agregada
-pub fn create_playlist_added_embed(track_count: usize, playlist_url: &str) -> CreateEmbed {
-    let (title, emoji) = if track_count == 1 {
-        ("1 Canción Agregada de Playlist", "✅")
-    } else {
-        ("Playlist Agregada Exitosamente", "📋")
-    };
-    
-    let description = if track_count == 1 {
-        "Se agregó **1 canción** de la playlist a la cola de reproducción".to_string()
-    } else {
-        format!("Se agregaron **{} canciones** de la playlist a la cola de reproducción", track_count)
-    };
-
-    let mut embed = CreateEmbed::default()
-        .title(format!("{} {}", emoji, title))
-        .description(&description)
-        .color(colors::MUSIC_PURPLE)
-        .field("📊 Canciones agregadas", track_count.to_string(), true);
-
-    // Extraer el ID de la playlist para mostrar
-    if let Some(list_start) = playlist_url.find("list=") {
-        let list_id = &playlist_url[list_start + 5..];
-        let clean_list_id = list_id.split('&').next().unwrap_or(list_id);
-        embed = embed.field("🆔 Playlist ID", format!("`{}`", clean_list_id), true);
-    }
-
-    embed = embed.field("🔗 Fuente", "YouTube Playlist", true);
-
-    // Agregar información útil en footer
-    let footer_text = if track_count > 1 {
-        "🎵 La reproducción comenzará automáticamente • Usa /queue para ver todas las canciones"
-    } else {
-        "🎵 La canción se reproducirá automáticamente"
-    };
-    
-    embed = embed
-        .footer(CreateEmbedFooter::new(footer_text))
-        .timestamp(Timestamp::now());
-
-    embed
-}
-
 /// Crea un embed para mostrar la cola de reproducción
 pub fn create_queue_embed(queue_info: &QueueInfo, page: usize) -> CreateEmbed {
     let items_per_page = 10;
