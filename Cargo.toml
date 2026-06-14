@@ -17,11 +17,10 @@ panic = "abort"
 [dependencies]
 # Framework Discord - Versiones estables para audio
 serenity = { version = "0.12.5", features = ["voice", "gateway", "rustls_backend", "http", "cache", "collector"] }
-songbird = { version = "0.5.0", features = ["builtin-queue", "serenity", "driver", "gateway", "rustls"] }
+songbird = { version = "0.6.0", features = ["builtin-queue", "serenity", "driver", "gateway", "rustls"] }
 
 # Procesamiento de audio - Versiones actualizadas
 symphonia = { version = "0.5.5", features = ["mp3", "aac", "flac", "wav", "ogg", "isomp4"] }
-audiopus = "0.3.0-rc.0"
 
 # Async runtime - Versiones optimizadas
 tokio = { version = "1.49", features = ["full"] }

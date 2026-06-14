@@ -1,5 +1,7 @@
 # Etapa de construcción (Debian para compatibilidad glibc)
-FROM rust:1.85-bookworm AS builder
+# Rust 1.x más reciente: songbird 0.6 (DAVE/E2EE) arrastra openmls, que requiere
+# stdlib >= 1.87 (is_multiple_of). 1.85 no alcanza.
+FROM rust:1-bookworm AS builder
 
 # Instalar dependencias de compilación
 RUN apt-get update && apt-get install -y --no-install-recommends \

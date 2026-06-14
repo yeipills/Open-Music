@@ -240,7 +240,7 @@ impl OpenMusicBot {
                 // Configurable vía OPUS_BITRATE; tope real = bitrate del canal de voz.
                 {
                     let mut call = connection_info.lock().await;
-                    call.set_bitrate(songbird::driver::Bitrate::BitsPerSecond(
+                    call.set_bitrate(songbird::driver::Bitrate::Bits(
                         self.config.opus_bitrate as i32,
                     ));
                 }
