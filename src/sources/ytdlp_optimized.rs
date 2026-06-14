@@ -65,8 +65,8 @@ impl YtDlpOptimizedClient {
 
     /// Extrae información del video usando yt-dlp
     async fn extract_video_info(&self, url: &str) -> Result<VideoInfo> {
-        let cookies_path = self.find_cookies_file().await?;
-        
+        let cookies_path = Self::cookies_working_copy();
+
         let pot_arg = pot_extractor_arg();
         let mut cmd = tokio::process::Command::new("yt-dlp");
         cmd.args([
@@ -105,26 +105,39 @@ impl YtDlpOptimizedClient {
         })
     }
 
-    /// Busca archivo de cookies disponible
-    async fn find_cookies_file(&self) -> Result<Option<String>> {
-        let cookies_paths = vec![
-            "/app/config/cookies.txt".to_string(),  // Docker container path
-            "./config/cookies.txt".to_string(),
-            format!("{}/.config/yt-dlp/cookies.txt", std::env::var("HOME").unwrap_or_default()),
-            "/home/openmusic/.config/yt-dlp/cookies.txt".to_string(),
-            "/app/.config/yt-dlp/cookies.txt".to_string(),
-            "./cookies.txt".to_string(),
-        ];
-
-        for path in cookies_paths {
-            if tokio::fs::metadata(&path).await.is_ok() {
-                info!("🍪 Cookies encontradas en: {}", path);
-                return Ok(Some(path));
+    /// Devuelve una **copia temporal descartable** del cookies.txt para pasarle a
+    /// yt-dlp. yt-dlp reescribe el archivo de cookies al terminar; pasarle el
+    /// original hace que invocaciones concurrentes (búsqueda + descarga) se pisen
+    /// y **degraden/quemen** las cookies en horas. Con una copia por invocación,
+    /// el `config/cookies.txt` original queda intacto y las cookies duran hasta su
+    /// expiración natural. Las copias viejas (>10 min) se limpian best-effort.
+    /// Si no hay cookies, devuelve None (yt-dlp lo intenta sin ellas).
+    pub fn cookies_working_copy() -> Option<String> {
+        // Limpieza best-effort de copias huérfanas en tmpfs.
+        if let Ok(entries) = std::fs::read_dir("/tmp") {
+            let now = std::time::SystemTime::now();
+            for e in entries.flatten() {
+                let name = e.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with("om_cookies_") && name.ends_with(".txt") {
+                    if let Ok(modified) = e.metadata().and_then(|m| m.modified()) {
+                        if now.duration_since(modified).map(|d| d.as_secs() > 600).unwrap_or(false) {
+                            let _ = std::fs::remove_file(e.path());
+                        }
+                    }
+                }
             }
         }
 
-        warn!("🍪 No se encontraron cookies - algunas funcionalidades pueden estar limitadas");
-        Ok(None)
+        let original = Self::find_cookies_path()?;
+        let dst = format!("/tmp/om_cookies_{}.txt", fastrand::u64(..));
+        match std::fs::copy(&original, &dst) {
+            Ok(_) => Some(dst),
+            Err(e) => {
+                warn!("🍪 No se pudo copiar cookies a tmp ({e}); usando original");
+                Some(original)
+            }
+        }
     }
 
     /// Extrae video ID de URL de YouTube
@@ -237,8 +250,8 @@ impl MusicSource for YtDlpOptimizedClient {
             urlencoding::encode(query)
         );
         
-        // Buscar cookies para optimización
-        let cookies_path = self.find_cookies_file().await.ok().flatten();
+        // Copia descartable de cookies (yt-dlp reescribe el archivo)
+        let cookies_path = Self::cookies_working_copy();
         let search_limit = limit.min(5);
         let pot_arg = pot_extractor_arg();
 
@@ -352,7 +365,7 @@ impl MusicSource for YtDlpOptimizedClient {
     }
 
     async fn get_playlist(&self, url: &str) -> Result<Vec<TrackSource>> {
-        let cookies_path = self.find_cookies_file().await?;
+        let cookies_path = Self::cookies_working_copy();
 
         let pot_arg = pot_extractor_arg();
         let mut cmd = tokio::process::Command::new("yt-dlp");
@@ -421,7 +434,7 @@ impl TrackSource {
             anyhow::bail!("Solo se soportan URLs de YouTube");
         }
 
-        let cookies_path = YtDlpOptimizedClient::find_cookies_path();
+        let cookies_path = YtDlpOptimizedClient::cookies_working_copy();
 
         let url = self.url();
         let filter = filter.to_string();

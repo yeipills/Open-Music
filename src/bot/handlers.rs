@@ -315,7 +315,7 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
         // Streaming lazy: reproducir el primer track apenas se extrae y encolar
         // el resto en segundo plano. No se espera a listar toda la lista, así la
         // música aparece casi al instante sin importar el tamaño de la playlist.
-        let cookies = YtDlpOptimizedClient::find_cookies_path();
+        let cookies = YtDlpOptimizedClient::cookies_working_copy();
         let mut child = match YtDlpOptimizedClient::spawn_playlist_stream(query, cookies.as_deref()) {
             Ok(c) => c,
             Err(e) => {
