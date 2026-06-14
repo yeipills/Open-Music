@@ -202,6 +202,8 @@ impl YtDlpOptimizedClient {
             "--ignore-config",
             "--flat-playlist",
             "--lazy-playlist",
+            // Forzar procesar la lista cuando la URL es watch?v=...&list=...
+            "--yes-playlist",
             "--print", "%(url)s|%(title)s|%(uploader)s|%(duration)s",
             "--no-warnings",
             "--socket-timeout", "30",

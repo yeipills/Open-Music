@@ -306,8 +306,14 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
 
     // Buscar y agregar a la cola con sistema optimizado
     let is_url = query.starts_with("http");
-    let is_playlist = is_url && query.contains("playlist");
-    
+    // Detectar playlist por el parámetro `list=` (cubre tanto
+    // youtube.com/playlist?list=... como watch?v=...&list=..., la forma más
+    // común de compartir una lista desde un video). Excluir los mixes/radios
+    // autogenerados (list=RD...), que son infinitos: tratarlos como video suelto.
+    let has_list = query.contains("list=");
+    let is_radio_mix = query.contains("list=RD") || query.contains("list=UL");
+    let is_playlist = is_url && has_list && !is_radio_mix;
+
     if is_playlist {
         // Es una playlist de YouTube
         info!("📋 Detectada playlist de YouTube: {}", query);
