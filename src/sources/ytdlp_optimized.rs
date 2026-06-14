@@ -7,6 +7,16 @@ use tracing::{debug, info, warn, error};
 
 use super::{MusicSource, TrackSource, SourceType};
 
+/// Extractor-arg que apunta yt-dlp al proveedor de PO Tokens (servicio
+/// `bgutil-provider` en la red del compose). Evita el bloqueo anti-bot de
+/// YouTube ("Sign in to confirm you're not a bot") desde IPs de datacenter.
+/// El base_url es overridable por env `POT_PROVIDER_URL`.
+fn pot_extractor_arg() -> String {
+    let base = std::env::var("POT_PROVIDER_URL")
+        .unwrap_or_else(|_| "http://bgutil-provider:4416".to_string());
+    format!("youtubepot-bgutilhttp:base_url={base}")
+}
+
 /// Cliente optimizado que usa solo yt-dlp + FFmpeg con streaming directo
 pub struct YtDlpOptimizedClient;
 
@@ -57,6 +67,7 @@ impl YtDlpOptimizedClient {
     async fn extract_video_info(&self, url: &str) -> Result<VideoInfo> {
         let cookies_path = self.find_cookies_file().await?;
         
+        let pot_arg = pot_extractor_arg();
         let mut cmd = tokio::process::Command::new("yt-dlp");
         cmd.args([
             "--ignore-config",
@@ -64,6 +75,7 @@ impl YtDlpOptimizedClient {
             "--no-playlist",
             "--socket-timeout", "30",
             "--retries", "3",
+            "--extractor-args", &pot_arg,
         ]);
 
         // Agregar cookies si están disponibles
@@ -163,11 +175,12 @@ impl MusicSource for YtDlpOptimizedClient {
         // Buscar cookies para optimización
         let cookies_path = self.find_cookies_file().await.ok().flatten();
         let search_limit = limit.min(5);
+        let pot_arg = pot_extractor_arg();
 
         // Usar std::process en lugar de tokio::process para evitar problemas de señales
         let output = tokio::task::spawn_blocking(move || {
             let mut cmd = std::process::Command::new("yt-dlp");
-            
+
             // Argumentos optimizados para máxima velocidad
             cmd.args([
                 "--ignore-config",
@@ -179,9 +192,10 @@ impl MusicSource for YtDlpOptimizedClient {
                 "--retries", "2",
                 "--geo-bypass",
                 "--force-ipv4",
+                "--extractor-args", &pot_arg,
                 "--playlist-items", &format!("1:{}", search_limit),
             ]);
-            
+
             // Agregar cookies si están disponibles para evitar throttling
             if let Some(cookies) = cookies_path {
                 cmd.args(["--cookies", &cookies]);
@@ -275,6 +289,7 @@ impl MusicSource for YtDlpOptimizedClient {
     async fn get_playlist(&self, url: &str) -> Result<Vec<TrackSource>> {
         let cookies_path = self.find_cookies_file().await?;
         
+        let pot_arg = pot_extractor_arg();
         let mut cmd = tokio::process::Command::new("yt-dlp");
         cmd.args([
             url,
@@ -282,6 +297,7 @@ impl MusicSource for YtDlpOptimizedClient {
             "--print", "%(webpage_url)s|%(title)s|%(uploader)s|%(duration)s|%(thumbnail)s",
             "--flat-playlist",
             "--socket-timeout", "30",
+            "--extractor-args", &pot_arg,
             "--quiet"
         ]);
 
@@ -371,6 +387,7 @@ impl TrackSource {
         let url = self.url();
         let filter = filter.to_string();
         let title = self.title();
+        let pot_arg = pot_extractor_arg();
 
         let input = tokio::task::spawn_blocking(move || -> Result<Input> {
             // 1) yt-dlp streamea el contenedor de mejor audio a stdout
@@ -383,6 +400,7 @@ impl TrackSource {
                 "--no-check-certificate",
                 "--geo-bypass",
                 "--force-ipv4",
+                "--extractor-args", &pot_arg,
                 "--quiet",
             ]);
             if let Some(ref c) = cookies_path {

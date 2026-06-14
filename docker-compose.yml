@@ -1,12 +1,35 @@
 # docker-compose.yml - Configuración optimizada Open Music Bot
 
 services:
+  # Proveedor de PO Tokens (BotGuard) para evitar el bloqueo anti-bot de YouTube.
+  # El bot lo consulta por nombre de servicio en la red interna del compose.
+  # Puerto 4416 NO expuesto al host: solo accesible dentro de esta red.
+  bgutil-provider:
+    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    container_name: open-music-potprovider
+    restart: unless-stopped
+    expose:
+      - "4416"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
   open-music:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: open-music-bot
     restart: unless-stopped
+    depends_on:
+      - bgutil-provider
 
     # Recursos limitados para optimización
     deploy:
@@ -51,9 +74,10 @@ services:
       - ./config:/app/config
       - ./config:/home/openmusic/.config/yt-dlp
 
-    # Red configurada
+    # Métricas (opcional). Bindeado a localhost en 8095 para no chocar con
+    # otros servicios del host que ya usan 8080.
     ports:
-      - "8080:8080" # Puerto para métricas si fuera necesario
+      - "127.0.0.1:8095:8080"
 
     # Health check
     healthcheck:

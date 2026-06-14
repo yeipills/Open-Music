@@ -56,6 +56,13 @@ RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o 
     && chmod a+rx /usr/local/bin/yt-dlp \
     && yt-dlp --version
 
+# Plugin cliente de PO Token (bgutil) para yt-dlp binario: se carga como zip
+# desde el directorio de plugins. Consulta al servicio bgutil-provider (compose).
+RUN mkdir -p /etc/yt-dlp/plugins \
+    && curl -L https://github.com/Brainicism/bgutil-ytdlp-pot-provider/releases/latest/download/bgutil-ytdlp-pot-provider.zip \
+       -o /etc/yt-dlp/plugins/bgutil-ytdlp-pot-provider.zip \
+    && yt-dlp --verbose --simulate "https://www.youtube.com/watch?v=dQw4w9WgXcQ" 2>&1 | grep -i "pot\|plugin" || true
+
 # Instalar deno (requerido por yt-dlp 2025+ para YouTube)
 RUN curl -fsSL https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip -o /tmp/deno.zip \
     && unzip /tmp/deno.zip -d /usr/local/bin \
