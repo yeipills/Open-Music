@@ -22,13 +22,22 @@ Ambos son necesarios. Ver el pipeline completo en [AUDIO_PIPELINE.md](./AUDIO_PI
   commitearse ni subirse a GitHub.
 - Mantener la cuenta secundaria sin 2FA molesto y sin datos sensibles.
 
-## Cómo exportar las cookies
+## Cómo exportar las cookies (MÉTODO INCÓGNITO — importante)
 
-1. En un navegador, iniciar sesión en **YouTube** con la **cuenta secundaria**.
-2. Instalar la extensión **"Get cookies.txt LOCALLY"** (Chrome/Firefox).
-   - Usar la variante *LOCALLY* (no envía datos a terceros).
-3. Estando en `https://www.youtube.com`, abrir la extensión y **exportar** →
+> ⚠️ **No exportes desde una sesión normal de navegador.** YouTube **rota** las
+> cookies de sesiones activas como medida de seguridad, invalidando las que
+> exportaste a los pocos minutos (síntoma: *"cookies are no longer valid, rotated
+> in the browser"*). La solución es exportar desde una ventana de incógnito y
+> **cerrarla sin hacer logout**, para que la sesión quede congelada y no se rote.
+
+1. Abrir una **ventana de incógnito / privada**.
+2. Iniciar sesión en **YouTube** con la **cuenta secundaria**.
+3. Instalar (o tener habilitada en incógnito) la extensión
+   **"Get cookies.txt LOCALLY"** (variante *LOCALLY*, no envía datos a terceros).
+4. En `https://www.youtube.com`, abrir la extensión y **exportar** →
    descarga un `cookies.txt` en formato **Netscape**.
+5. **Cerrar la ventana de incógnito SIN hacer logout.** (Esto congela la sesión:
+   YouTube deja de rotar esas cookies y duran mucho más.)
 
 ## Cómo instalarlas en el VPS
 
