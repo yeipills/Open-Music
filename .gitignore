@@ -47,6 +47,10 @@ playlist_cache/
 .vscode/
 .idea/
 .claude/
+
+# === MCP / TOOLING (config local) ===
+.mcp.json
+.serena/
 *.swp
 *.swo
 *~
