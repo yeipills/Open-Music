@@ -2,655 +2,226 @@
 
 **Bot de música para Discord de alto rendimiento construido en Rust 🦀**
 
-Bot moderno con arquitectura optimizada, soporte completo para comandos slash, y interfaz interactiva avanzada.
+Motor único de reproducción con cola real, ecualizador y normalización por ffmpeg,
+audio Opus nativo y extracción vía yt-dlp con soporte para el bloqueo anti-bot de
+YouTube. Footprint mínimo (~100 MB RAM).
 
-## ⚡ Estado del Proyecto
+> **Estado:** en producción. Audio E2EE (DAVE) soportado vía Songbird 0.6.
 
-**✅ COMPLETAMENTE FUNCIONAL** - Bot listo para producción con todas las características implementadas y documentación actualizada.
-
-### 🎯 Características Principales
+## ⚡ Características
 
 **Core**
-- ✅ **Rust 2021** con dependencias actualizadas (Serenity 0.12.5, Songbird 0.5.0)
-- ✅ **Comandos Slash** completos con autocompletado y `dm_permission`
-- ✅ **Audio de Alta Calidad** con Opus 96-384kbps
-- ✅ **Interfaz Interactiva** con botones Discord nativos
-- ✅ **Tests Unitarios** para config y storage (18 tests)
+- **Rust 2021**, Serenity `0.12` + **Songbird `0.6`** (soporte **DAVE/E2EE**, obligatorio
+  en Discord desde 2026-03).
+- 24 comandos slash con `dm_permission`, embeds ricos y botones nativos.
+- Cola real con auto-avance, shuffle, loop e historial.
+- Tests unitarios de config y storage.
 
-**Audio Avanzado**
-- ✅ **Ecualizador** con 8 presets (Bass, Pop, Rock, Jazz, Classical, Electronic, Vocal, Flat)
-- ✅ **Cola Inteligente** con shuffle, repeat, y búsqueda
-- ✅ **yt-dlp Optimizado** para extracción ultra-rápida
-- ✅ **Control de Volumen** 0-200% con normalización
-- ✅ **Anti-detección** con cookies de navegador
+**Audio**
+- **Un solo motor** (`AudioPlayer`): cola, reproducción, efectos y eventos unificados.
+- **Calidad Opus configurable** (por defecto **128 kbps**; el techo real lo marca el nivel
+  de boost del servidor de Discord). Fuente preferida **Opus/48 kHz** para evitar resample.
+  Ver [`docs/AUDIO_QUALITY.md`](docs/AUDIO_QUALITY.md).
+- **EQ real + loudness normalization** vía filtros **ffmpeg** (`loudnorm` + 8 presets:
+  Bass, Pop, Rock, Jazz, Classical, Electronic, Vocal, Flat).
+- Control de volumen 0–200 %.
 
-**Performance**
-- ✅ **Cache LRU** optimizado con TTL automático
-- ✅ **Monitoreo en Tiempo Real** con métricas
-- ✅ **Docker Multi-stage** ~50MB imagen final
-- ✅ **Almacenamiento JSON** ligero y rápido
+**YouTube (anti-bot)**
+- Extracción con **yt-dlp** en streaming directo (sin descargas intermedias).
+- **PO Token provider** (`bgutil`) como servicio del compose + **cookies** de cuenta.
+  Ver [`docs/COOKIES.md`](docs/COOKIES.md).
+- **Playlists en streaming**: la música arranca apenas se extrae el primer tema y el
+  resto se encola en segundo plano (rápido incluso en listas largas). Soporta
+  `playlist?list=`, `watch?v=...&list=` y radios/mixes (`list=RD`, con tope de 50).
 
-### 🚀 Inicio Rápido
-
-**Docker (Recomendado)**
-```bash
-cp .env.example .env
-# Configurar DISCORD_TOKEN en .env
-docker-compose up -d
-```
-
-**Desarrollo Local**
-```bash
-cargo build --release
-cargo run
-```
+**Operación**
+- Monitoreo y métricas en tiempo real, health check integrado.
+- Docker multi-stage (build Debian/glibc, runtime con ffmpeg + yt-dlp + deno).
 
 ## 🏗️ Arquitectura
 
-### Stack Tecnológico
-| Componente | Tecnología | Versión |
-|------------|------------|---------|
-| **Framework** | Serenity + Songbird | 0.12.5 + 0.5.0 |
-| **Audio** | yt-dlp + Symphonia + Opus | 2025.01 + 0.5.5 + 0.3.0 |
-| **Runtime** | Tokio | 1.49 |
-| **Extracción** | YtDlp Optimizado | Ultra-rápido |
-| **Container** | Docker Alpine | 3.21 |
+```
+Usuario: /play <query|url|playlist>
+        │
+        ▼
+yt-dlp (búsqueda / extracción de playlist en streaming lazy)
+        │
+        ▼
+AudioPlayer  ──►  MusicQueue (cola, auto-avance)
+        │
+        ▼ (por track)
+yt-dlp -o -  │  ffmpeg -af "loudnorm,<eq>"  ──►  ChildContainer
+        │                                              │
+        ▼                                              ▼
+   PO Token (bgutil) + cookies            songbird → Opus 128k → Discord (DAVE/E2EE)
+```
 
-### Estructura del Proyecto
+Detalle completo en [`docs/AUDIO_PIPELINE.md`](docs/AUDIO_PIPELINE.md).
+
+### Stack
+| Componente | Tecnología |
+|---|---|
+| Framework / Voz | Serenity 0.12 + **Songbird 0.6** (DAVE) |
+| Decodificación / Encoding | Symphonia + opus2 (vía songbird) |
+| Audio (EQ/normalización) | **ffmpeg** (`loudnorm`, `equalizer`) |
+| Extracción | **yt-dlp** + **bgutil PO Token provider** |
+| Runtime async | Tokio |
+| Contenedor | Docker (builder `rust:1`-bookworm, runtime `debian:bookworm-slim`) |
+
+### Estructura
 ```
 src/
-├── audio/           # 🎵 Reproductor, cola, efectos
-│   ├── player.rs    # Motor de reproducción principal
-│   ├── queue.rs     # Gestión de cola avanzada
-│   └── effects.rs   # Ecualizador y procesamiento
-├── bot/             # 🤖 Lógica del bot Discord
-│   ├── commands.rs  # Comandos slash implementados
-│   ├── handlers.rs  # Manejadores de eventos
+├── audio/
+│   ├── player.rs    # Motor único: cola, reproducción, auto-avance, eventos
+│   ├── queue.rs     # Cola (shuffle, loop, historial)
+│   └── effects.rs   # Construye la cadena de filtros ffmpeg (loudnorm + EQ)
+├── bot/
+│   ├── handlers.rs  # Dispatch de comandos y lógica de /play (incl. playlist streaming)
+│   ├── commands.rs  # Registro de comandos slash
 │   └── events.rs    # Eventos de Discord
-├── sources/         # 📡 Fuentes de audio
-│   └── ytdlp_optimized.rs # Integración yt-dlp ultra-optimizada
-├── ui/              # 🎨 Interfaz de usuario
-│   ├── embeds.rs    # Embeds ricos
-│   └── buttons.rs   # Controles interactivos
-├── cache/           # 💾 Sistema de caché
-│   └── lru_cache.rs # Cache LRU con TTL
-├── monitoring/      # 📊 Monitoreo y métricas
-└── config.rs        # ⚙️ Configuración centralizada
+├── sources/
+│   └── ytdlp_optimized.rs  # Búsqueda, extracción, cadena yt-dlp|ffmpeg, PO token, cookies
+├── ui/{embeds,buttons}.rs  # Embeds y controles
+├── cache/, monitoring/     # Caché LRU y métricas
+└── config.rs               # Configuración por entorno
+docs/
+├── AUDIO_PIPELINE.md   # Pipeline de audio
+├── AUDIO_QUALITY.md    # Por qué Opus 128k (realidad de Discord)
+└── COOKIES.md          # Configuración y refresco de cookies de YouTube
 ```
 
-## 🎵 Funcionalidades Completas
+## 🚀 Inicio rápido (Docker)
 
-### 🎮 Control de Reproducción
-| Función | Estado | Descripción |
-|---------|--------|--------------|
-| ▶️ **Play/Pause/Stop** | ✅ | Controles básicos de reproducción |
-| ⏭️ **Skip/Previous** | ✅ | Navegación entre tracks |
-| 🔀 **Shuffle** | ✅ | Reproducción aleatoria |
-| 🔁 **Repeat** | ✅ | Modos: Off, Track, Queue |
-| ⏰ **Seek** | ✅ | Saltar a posición específica |
-| 📴 **Auto-disconnect** | ✅ | Desconexión por inactividad |
-
-### 🎧 Audio Avanzado
-- **🎚️ Ecualizador**: 8 presets profesionales
-  - Bass Boost, Pop, Rock, Jazz, Classical, Electronic, Vocal, Flat
-- **🔊 Control de Volumen**: 0-200% con normalización automática
-- **🎵 Alta Calidad**: Opus 96-384kbps (según tier del servidor), 48kHz
-- **🔄 Procesamiento**: Filtros FIR/IIR en tiempo real
-
-### 📋 Gestión de Cola
-- **📄 Visualización**: Paginación automática (10 tracks/página)
-- **➕ Agregar/Remover**: Por posición o patrón
-- **🔄 Reordenar**: Mover tracks dinámicamente
-- **🗑️ Limpiar**: Total, duplicados, por usuario
-- **🎯 Jump**: Saltar a posición específica
-- **📈 Historial**: Últimas 50 reproducciones
-
-### 🚀 Extracción Ultra-Optimizada (2025)
-- **⚡ yt-dlp**: Método de extracción más rápido disponible
-- **🍪 Anti-detección**: Cookies de navegador para evitar limitaciones
-- **📱 Cliente Android**: Acceso optimizado a YouTube
-- **⏱️ Latencia**: ~8-10 segundos (50% más rápido que antes)
-- **🔄 Streaming directo**: Sin descargas intermedias
-- **🎵 Calidad**: bestaudio/best format automático
-
-### 🎨 Interfaz Interactiva
-- **🔘 Botones Discord**: Controles nativos integrados
-- **📱 Embeds Ricos**: Artwork, progreso, información detallada
-- **📊 Barra de Progreso**: Actualización en tiempo real
-- **💡 Help Contextual**: Ayuda específica por comando
-- **🌍 Multiidioma**: Español completo
-
-### ⚙️ Configuración Avanzada
-- **🏠 Por Servidor**: Configuraciones independientes
-- **👥 Permisos**: Control basado en roles Discord
-- **🚫 Límites**: Cola, duración, rate limiting
-- **💾 Persistencia**: Configuraciones guardadas automáticamente
-- **📊 Monitoreo**: Métricas de uso y rendimiento
-
-### ✅ Validaciones de Comandos (2026)
-- **🔇 dm_permission**: Comandos de música solo funcionan en servidores
-- **🎵 Estado de reproducción**: Validación antes de pause/resume/stop
-- **🔊 Volumen**: Advertencia para niveles > 100% (distorsión)
-- **🔌 Conexión de voz**: Verificación automática antes de comandos
-
-### 🧪 Testing
-- **18 tests unitarios** para config y storage
-- Ejecutar con: `cargo test --tests`
-
-### 🍪 Configuración de Cookies (Anti-detección)
-- **📁 Ubicación**: `config/cookies.txt` (auto-generadas en Docker)
-- **🔄 Actualización**: Automática desde navegador real
-- **🛡️ Protección**: Archivo ignorado por git para seguridad
-- **⚡ Beneficios**: Evita limitaciones de bot detection de YouTube
-- **📱 Formato**: Netscape HTTP Cookie format estándar
-
-## 🎛️ Comandos Disponibles
-
-### 🎵 **Reproducción**
-```bash
-/play <búsqueda>     # Reproduce canción o playlist
-/pause               # Pausar reproducción actual
-/resume              # Reanudar reproducción
-/stop                # Detener y limpiar cola
-/skip [cantidad]     # Saltar 1 o más canciones
-/previous            # Volver a canción anterior
-/seek <tiempo>       # Saltar a posición (ej: 1:30)
-```
-
-### 📋 **Gestión de Cola**
-```bash
-/queue [página]      # Ver cola (paginada)
-/add <búsqueda>      # Agregar a cola sin reproducir
-/remove <posición>   # Remover canción específica
-/clear [filtro]      # Limpiar (all/duplicates/user)
-/shuffle             # Activar/desactivar aleatorio
-/loop <modo>         # off/track/queue
-/jump <posición>     # Saltar a posición en cola
-```
-
-### 🎚️ **Audio**
-```bash
-/volume [0-200]      # Ajustar volumen (50 = 50%)
-/equalizer <preset>  # Bass/Pop/Rock/Jazz/Classical/Electronic/Vocal/Flat
-/bassboost [nivel]   # 0-100 intensidad
-/normalize           # Normalizar niveles de audio
-```
-
-### 🔧 **Utilidades**
-```bash
-/join [canal]        # Conectar a canal de voz
-/leave               # Desconectar del canal
-/nowplaying          # Información canción actual
-/history [página]    # Historial de reproducción
-/stats               # Estadísticas del servidor
-/help [comando]      # Ayuda detallada
-```
-
-## 📦 Instalación
-
-### 🐳 Docker (Recomendado)
-
-**1. Clonar el repositorio**
-```bash
-git clone https://github.com/tu-usuario/open-music-bot.git
-cd open-music-bot
-```
-
-**2. Configurar variables de entorno**
 ```bash
 cp .env.example .env
-nano .env  # Editar con tus tokens
+# Configurar DISCORD_TOKEN y APPLICATION_ID en .env
+docker compose up -d
+docker compose logs -f open-music
 ```
 
-**3. Ejecutar con Docker Compose**
-```bash
-docker-compose up -d
+Esto levanta dos contenedores: `open-music-bot` y `open-music-potprovider` (el
+proveedor de PO tokens, accesible solo en la red interna del compose).
+
+> **Cookies de YouTube:** para reproducir desde una IP de datacenter (VPS) hay que
+> proveer cookies de una cuenta secundaria en `config/cookies.txt`. El método correcto
+> (exportar en incógnito para que no caduquen) está en [`docs/COOKIES.md`](docs/COOKIES.md).
+
+## 🎛️ Comandos
+
+**Reproducción**
+```
+/play <búsqueda|url|playlist>   /pause   /resume   /stop
+/skip [cantidad]   /previous   /seek <tiempo>   /nowplaying
+/join [canal]   /leave
 ```
 
-**4. Verificar estado**
-```bash
-docker-compose logs -f  # Ver logs
-docker-compose ps       # Estado de contenedores
+**Cola**
+```
+/queue [página]   /add <búsqueda>   /remove <pos>   /jump <pos>
+/clear [all|duplicates|user]   /shuffle   /loop <off|track|queue>   /playlist   /search
 ```
 
-### 🛠️ Instalación Manual
-
-**Prerequisitos (Ubuntu/Debian)**
-```bash
-# Dependencias del sistema
-sudo apt update && sudo apt install -y \
-    build-essential cmake pkg-config \
-    libssl-dev libopus-dev \
-    python3-pip
-
-# Instalar yt-dlp (versión 2025 optimizada)
-pip3 install --upgrade yt-dlp
-
-# Instalar Rust (si no está instalado)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source ~/.cargo/env
+**Audio**
+```
+/volume [0-200]   /equalizer <Bass|Pop|Rock|Jazz|Classical|Electronic|Vocal|Flat>
 ```
 
-**Compilación y Ejecución**
-```bash
-# Compilar optimizado
-cargo build --release
-
-# Configurar entorno
-export DISCORD_TOKEN="tu_token_aqui"
-export APPLICATION_ID="tu_app_id_aqui"
-
-# Ejecutar
-./target/release/open-music
+**Sistema**
+```
+/help   /health   /metrics
 ```
 
-## ⚙️ Configuración
-
-### 📋 Variables de Entorno Requeridas
-
-Crea un archivo `.env` con las siguientes variables:
+## ⚙️ Configuración (.env)
 
 ```env
-# === DISCORD REQUERIDO ===
-DISCORD_TOKEN=tu_bot_token_discord
+# === DISCORD (requerido) ===
+DISCORD_TOKEN=tu_bot_token
 APPLICATION_ID=tu_application_id
-GUILD_ID=                          # Opcional: para testing en servidor específico
+GUILD_ID=                  # opcional: comandos solo en un servidor (testing)
 
 # === AUDIO ===
-DEFAULT_VOLUME=0.5                 # 0.0-2.0 (50% por defecto)
-OPUS_BITRATE=128000                # 64000-510000 (128kbps recomendado)
-FRAME_SIZE=960                     # 120/240/480/960/1920/2880 samples
-MAX_SONG_DURATION=7200             # Máximo 2 horas por canción
+DEFAULT_VOLUME=0.5         # 0.0–2.0
+OPUS_BITRATE=128000        # techo = bitrate del canal (boost del servidor)
+MAX_SONG_DURATION=7200
 
-# === PERFORMANCE ===
-CACHE_SIZE=100                     # Número de elementos en caché
-AUDIO_CACHE_SIZE=50                # Caché de archivos de audio
-MAX_QUEUE_SIZE=1000                # Máximo elementos en cola
-WORKER_THREADS=                    # Auto-detecta CPUs disponibles
-MAX_PLAYLIST_SIZE=100              # Máximo canciones por playlist
-
-# === LÍMITES ===
-RATE_LIMIT_PER_USER=20             # Comandos por minuto por usuario
+# === PERFORMANCE / LÍMITES ===
+CACHE_SIZE=100
+AUDIO_CACHE_SIZE=50
+MAX_QUEUE_SIZE=1000
+MAX_PLAYLIST_SIZE=100
+RATE_LIMIT_PER_USER=20
+WORKER_THREADS=            # vacío = auto (nº de CPUs)
 
 # === FEATURES ===
-ENABLE_EQUALIZER=true              # Habilitar ecualizador
-ENABLE_AUTOPLAY=false              # Reproducción automática
+ENABLE_EQUALIZER=true
+ENABLE_AUTOPLAY=false
 
-# === PATHS ===
-DATA_DIR=/app/data                 # Directorio de datos
-CACHE_DIR=/app/cache               # Directorio de caché
+# === PO TOKEN (opcional; default apunta al servicio del compose) ===
+# POT_PROVIDER_URL=http://bgutil-provider:4416
 
-# === LOGGING ===
-RUST_LOG=info,open_music=debug     # Nivel de logging
-RUST_BACKTRACE=1                   # Habilitar backtraces
+# === PATHS / LOGGING ===
+DATA_DIR=/app/data
+CACHE_DIR=/app/cache
+RUST_LOG=info,open_music=debug
+RUST_BACKTRACE=1
 ```
 
-### 📁 Estructura de Almacenamiento
+## 🍪 YouTube: cookies y PO token
 
-```
-data/
-├── servers/                  # Configuraciones por servidor
-│   └── {guild_id}.json      # Settings específicos del servidor
-├── history/                 # Historial de reproducción
-│   └── {guild_id}.json      # Últimas reproducciones
-├── playlists/               # Playlists guardadas
-│   └── {user_id}/          # Playlists por usuario
-└── openmusic.db            # Base de datos SQLite (futuro)
+YouTube bloquea las IPs de datacenter con *"Sign in to confirm you're not a bot"*
+(`LOGIN_REQUIRED`). Para reproducir hacen falta **las dos cosas**:
 
-cache/
-├── audio/                   # Archivos de audio temporales
-├── metadata/                # Metadatos de canciones
-└── thumbnails/              # Miniaturas de videos
-```
+1. **PO Token provider** (`bgutil-provider`, ya incluido en el compose) — robustez del streaming.
+2. **Cookies** de una cuenta secundaria en `config/cookies.txt`.
 
-### 🎛️ Configuración por Servidor
-
-Cada servidor Discord puede tener configuraciones independientes:
-
-```json
-{
-  "default_volume": 0.7,
-  "max_queue_per_user": 10,
-  "allowed_channels": ["channel_id_1", "channel_id_2"],
-  "dj_roles": ["DJ", "Moderador"],
-  "auto_disconnect_timeout": 600,
-  "enable_voting": true,
-  "vote_threshold": 3
-}
-```
+Puntos clave (detalle en [`docs/COOKIES.md`](docs/COOKIES.md)):
+- Exportar las cookies **en ventana de incógnito** y cerrarla **sin logout**, o YouTube
+  las rota e invalida en minutos.
+- El bot pasa a yt-dlp una **copia descartable** de las cookies por invocación, para no
+  degradar el `config/cookies.txt` original (yt-dlp lo reescribiría).
+- `config/cookies.txt` está en `.gitignore` — nunca commitearlo.
 
 ## 🐳 Docker
 
-### 📊 Especificaciones del Contenedor
-
-| Métrica | Valor | Descripción |
-|---------|-------|-------------|
-| **Imagen Base** | Alpine 3.21 | Linux minimalista |
-| **Tamaño Final** | ~50MB | Multi-stage optimizado |
-| **RAM Reservada** | 256MB | Mínimo garantizado |
-| **RAM Límite** | 512MB | Máximo permitido |
-| **CPU Reservada** | 0.5 cores | Mínimo garantizado |
-| **CPU Límite** | 2.0 cores | Máximo permitido |
-
-### 🔧 Docker Compose Completo
-
-```yaml
-version: '3.9'
-
-services:
-  open-music:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: open-music-bot
-    restart: unless-stopped
-    
-    # Recursos optimizados
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 512M
-        reservations:
-          cpus: '0.5'
-          memory: 256M
-    
-    environment:
-      - DISCORD_TOKEN=${DISCORD_TOKEN}
-      - APPLICATION_ID=${APPLICATION_ID}
-      - DEFAULT_VOLUME=0.5
-      - ENABLE_EQUALIZER=true
-      - RUST_LOG=info,open_music=debug
-    
-    volumes:
-      - ./data:/app/data
-      - ./cache:/app/cache
-      - ./config:/home/openmusic/.config/yt-dlp
-    
-    # Health check integrado
-    healthcheck:
-      test: ["CMD", "pgrep", "open-music"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-    
-    # Seguridad
-    security_opt:
-      - no-new-privileges:true
-    read_only: true
-    
-    # Logging optimizado
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-```
-
-### 🚀 Comandos de Gestión
-
 ```bash
-# Construcción y despliegue
-docker-compose up -d --build
-
-# Monitoreo
-docker-compose logs -f                    # Ver logs en tiempo real
-docker-compose ps                          # Estado de servicios
-docker stats open-music-bot                # Uso de recursos
-
-# Mantenimiento
-docker-compose restart                     # Reiniciar servicios
-docker-compose down                        # Parar y remover
-docker system prune                        # Limpiar imágenes no usadas
-
-# Debugging
-docker-compose exec open-music sh          # Acceder al contenedor
-docker-compose logs --tail=50 open-music   # Últimas 50 líneas
+docker compose build              # construir (build largo: compila Rust + DAVE/MLS)
+docker compose up -d              # levantar bot + PO token provider
+docker compose logs -f open-music # logs
+docker compose restart open-music # reiniciar solo el bot (ej. tras cambiar cookies)
 ```
 
-## 🧪 Testing y Desarrollo
+Notas:
+- El builder usa `rust:1`-bookworm (la cadena DAVE arrastra `openmls`, que requiere
+  Rust ≥ 1.87). El runtime es `debian:bookworm-slim` con ffmpeg, yt-dlp y deno.
+- El bot no necesita puertos entrantes; el `8080` interno (métricas) se mapea a
+  `127.0.0.1:8095` para no chocar con otros servicios del host.
 
-### 🔍 Herramientas de Desarrollo
+## 🚨 Solución de problemas
 
+| Síntoma (en logs) | Causa | Solución |
+|---|---|---|
+| `close code 4017 / DAVE protocol required` | Songbird sin soporte DAVE | Usar Songbird ≥ 0.6 (ya incluido) |
+| `Sign in to confirm you're not a bot` / `LOGIN_REQUIRED` | Cookies ausentes/quemadas | Re-exportar cookies en incógnito → `config/cookies.txt` |
+| `cookies are no longer valid, rotated in the browser` | Cookies exportadas de sesión activa | Exportar en incógnito y cerrar sin logout |
+| `symphonia probe reach EOF at 0 bytes` | yt-dlp devolvió 0 bytes (bloqueo) | Mismo que arriba (cookies) |
+| `DISCORD_TOKEN not found` | Falta el token | Configurar `.env` |
+
+## 🧪 Desarrollo
+
+Sin toolchain Rust local, todo se valida vía Docker:
 ```bash
-# === TESTING ===
-cargo test                              # Unit tests
-cargo test --test integration           # Integration tests
-cargo test -- --nocapture               # Tests con output
-
-# === LINTING Y FORMATTING ===
-cargo clippy                            # Linter avanzado
-cargo clippy -- -D warnings            # Tratar warnings como errores
-cargo fmt                               # Formatear código
-cargo fmt -- --check                    # Verificar formato
-
-# === ANÁLISIS ===
-cargo audit                             # Auditoría de seguridad
-cargo outdated                          # Dependencias desactualizadas
-cargo tree                              # Árbol de dependencias
-
-# === BENCHMARKING ===
-cargo criterion                         # Benchmarks de performance
-cargo flamegraph                        # Profile de CPU
-
-# === DOCUMENTACIÓN ===
-cargo doc --open                        # Generar docs y abrir
-cargo doc --no-deps                     # Solo docs del proyecto
+docker build --target builder -t openmusic-check .   # valida compilación
+cargo test    # (si tenés Rust local) tests de config y storage
 ```
-
-### 🐛 Debugging
-
-```bash
-# Ejecutar con logs detallados
-RUST_LOG=debug RUST_BACKTRACE=full cargo run
-
-# Profile de memoria
-valgrind --tool=memcheck ./target/release/open-music
-
-# Análisis de performance
-perf record ./target/release/open-music
-perf report
-```
-
-### 🔧 Scripts de Desarrollo
-
-Crea un archivo `scripts/dev.sh`:
-```bash
-#!/bin/bash
-set -e
-
-echo "🔍 Running lints..."
-cargo clippy -- -D warnings
-
-echo "📝 Checking format..."
-cargo fmt -- --check
-
-echo "🧪 Running tests..."
-cargo test
-
-echo "🔒 Security audit..."
-cargo audit
-
-echo "✅ All checks passed!"
-```
-
-## 🚨 Solución de Problemas
-
-### ❌ Errores Frecuentes
-
-| Error | Causa | Solución |
-|-------|-------|----------|
-| `DISCORD_TOKEN not found` | Token no configurado | Agregar `DISCORD_TOKEN` al `.env` |
-| `opus link error` | libopus faltante | `apt install libopus-dev` |
-| `cmake not found` | Build tools faltantes | `apt install cmake build-essential` |
-| `Permission denied` | Permisos Discord | Verificar permisos del bot |
-| `yt-dlp not found` | yt-dlp no instalado | `pip3 install --upgrade yt-dlp` |
-| `Connection timed out` | Red/Firewall | Verificar conectividad |
-| `Audio choppy` | CPU/Memoria insuficiente | Aumentar recursos |
-
-### 🔧 Diagnóstico
-
-```bash
-# Health check completo
-docker-compose exec open-music /app/open-music --health-check
-
-# Verificar dependencias
-yt-dlp --version
-ffmpeg -version
-opus_demo --help
-
-# Test de conectividad
-ping discord.com
-curl -I https://www.youtube.com
-
-# Verificar recursos
-free -h                    # Memoria disponible
-nproc                      # CPUs disponibles
-df -h                      # Espacio en disco
-```
-
-### 📊 Métricas de Rendimiento
-
-| Métrica | Valor Típico | Valor Óptimo |
-|---------|--------------|-------------|
-| **Memoria RAM** | 80-150MB | <100MB |
-| **CPU (idle)** | 1-5% | <2% |
-| **CPU (playing)** | 10-25% | <15% |
-| **Latencia Audio** | 50-150ms | <100ms |
-| **Búsqueda yt-dlp** | 8-10s | <8s |
-| **Tiempo Respuesta** | 100-500ms | <200ms |
-| **Servidores Concurrentes** | 50+ | 100+ |
-
-### 🐛 Logging Avanzado
-
-```bash
-# Logging detallado
-export RUST_LOG="debug,serenity=info,songbird=debug"
-export RUST_BACKTRACE=full
-
-# Archivo de logs
-./target/release/open-music 2>&1 | tee bot.log
-
-# Análisis de logs
-grep ERROR bot.log              # Solo errores
-grep "guild_id" bot.log         # Actividad por servidor
-tail -f bot.log | grep WARN     # Warnings en tiempo real
-```
-
-### 🔐 Permisos Discord
-
-**Permisos Mínimos Requeridos:**
-- ✅ View Channels
-- ✅ Send Messages  
-- ✅ Connect (Voice)
-- ✅ Speak (Voice)
-- ✅ Use Slash Commands
-
-**Permisos Opcionales:**
-- 📎 Attach Files (para logs)
-- 🔗 Embed Links (para embeds ricos)
-- 📜 Read Message History
-- 🎭 Manage Messages (limpiar comandos)
-
-## 📈 Estadísticas del Proyecto
-
-| Métrica | Valor |
-|---------|-------|
-| **Líneas de Código** | ~10,625 |
-| **Archivos Rust** | 37 |
-| **Dependencias** | 25+ optimizadas |
-| **Tamaño Binario** | ~15MB (release) |
-| **Tiempo Compilación** | ~3-5 min |
-| **Cobertura Tests** | En desarrollo |
-
-## 🤝 Contribución
-
-### 🔀 Proceso de Contribución
-
-1. **Fork** el repositorio
-2. **Crear** rama de feature: `git checkout -b feature/nueva-funcionalidad`
-3. **Desarrollar** siguiendo las convenciones
-4. **Testear** con `scripts/dev.sh`
-5. **Commit** con mensajes descriptivos
-6. **Push** a tu fork
-7. **Crear** Pull Request
-
-### 📋 Tareas Pendientes
-
-- [ ] **Tests Unitarios** - Cobertura 80%+
-- [ ] **Playlists Persistentes** - Sistema completo
-- [ ] **Modo DJ** - Permisos especiales
-- [ ] **Vote Skip** - Sistema colaborativo
-- [ ] **Métricas Web** - Dashboard HTTP
-- [ ] **Búsqueda Avanzada** - Filtros múltiples
-- [ ] **Integración Spotify** - Metadata adicional
-
-## 📞 Soporte
-
-### 🆘 Obtener Ayuda
-
-- **📖 Documentación**: 
-  - [README.md](README.md) - Información general
-  - [DEVELOPMENT.md](DEVELOPMENT.md) - Guía de desarrollo
-  - [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Solución de problemas
-- **🐛 Issues**: [GitHub Issues](https://github.com/tu-usuario/open-music-bot/issues)
-- **💬 Discusiones**: [GitHub Discussions](https://github.com/tu-usuario/open-music-bot/discussions)
-- **📧 Email**: tu-email@dominio.com
-
-### 🏷️ Versioning
-
-Usamos [Semantic Versioning](https://semver.org/):
-- **Major** (1.x.x): Cambios incompatibles
-- **Minor** (x.1.x): Nuevas funcionalidades
-- **Patch** (x.x.1): Bug fixes
-
-## 🎯 Roadmap
-
-### 📅 Version 1.1.0 (Q1 2025)
-- ✅ Comandos slash completos
-- ✅ Docker optimizado
-- 🔄 Tests unitarios (80% coverage)
-- 🔄 Playlists persistentes
-
-### 📅 Version 1.2.0 (Q2 2025)
-- 🔄 Modo DJ avanzado
-- 🔄 Sistema de votación
-- 🔄 Métricas web dashboard
-- 🔄 Integración Spotify
-
-### 📅 Version 2.0.0 (Q3 2025)
-- 🔄 Arquitectura microservicios
-- 🔄 Clustering multi-servidor
-- 🔄 API REST pública
-- 🔄 Plugin system
-
----
 
 ## 📄 Licencia
 
-**MIT License** - Ver [LICENSE](LICENSE) para detalles completos.
-
-```
-Copyright (c) 2024 Open Music Bot Contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software...
-```
+MIT — ver [LICENSE](LICENSE).
 
 ---
 
 <div align="center">
 
-**🦀 Desarrollado con Rust | ⚡ Powered by Serenity & Songbird**
-
-*Bot de música Discord de próxima generación*
-
-[![Rust](https://img.shields.io/badge/Rust-1.85-orange?logo=rust)](https://rustlang.org)
-[![Docker](https://img.shields.io/badge/Docker-Ready-blue?logo=docker)](https://docker.com)
-[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)](README.md)
+**🦀 Rust · Serenity & Songbird · ffmpeg · yt-dlp**
 
 </div>
