@@ -31,15 +31,18 @@ services:
     depends_on:
       - bgutil-provider
 
-    # Recursos limitados para optimización
+    # Recursos limitados para optimización.
+    # Memoria a 1G: el solver de n-challenge de YouTube (deno) pega picos que
+    # superaban el límite de 512M y el cgroup mataba el proceso (OOMKilled),
+    # dejando "Requested format is not available". 1G da margen para esos picos.
     deploy:
       resources:
         limits:
           cpus: '2.0'
-          memory: 512M
+          memory: 1G
         reservations:
           cpus: '0.5'
-          memory: 256M
+          memory: 384M
 
     environment:
       # Discord
