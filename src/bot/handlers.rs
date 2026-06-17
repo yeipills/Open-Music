@@ -311,11 +311,11 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
     // youtube.com/playlist?list=... como watch?v=...&list=..., la forma más
     // común de compartir una lista desde un video).
     let has_list = query.contains("list=");
-    // Los mixes/radios autogenerados (list=RD/RDMM/UL...) son infinitos: se
-    // cargan pero con tope (playlist_limit) para no encolar miles de temas.
-    let is_radio_mix = query.contains("list=RD") || query.contains("list=UL");
     let is_playlist = is_url && has_list;
-    let playlist_limit: Option<usize> = if is_radio_mix { Some(50) } else { None };
+    // Tope de 15 temas al cargar una lista vía /play (incluye mixes/radios
+    // infinitos list=RD/UL). Para cargar listas completas está el comando
+    // /playlist, que no aplica este tope.
+    let playlist_limit: Option<usize> = Some(15);
 
     if is_playlist {
         // Es una playlist de YouTube
