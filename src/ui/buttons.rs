@@ -17,6 +17,7 @@ use serenity::model::id::GuildId;
 pub mod button_ids {
     pub const PLAY_PAUSE: &str = "music_play_pause";
     pub const SKIP: &str = "music_skip";
+    pub const RESTART: &str = "music_restart";
     pub const STOP: &str = "music_stop";
     pub const SHUFFLE: &str = "music_shuffle";
     pub const LOOP_TRACK: &str = "music_loop";
@@ -99,6 +100,10 @@ impl MusicControls {
         ]);
 
         // Second row of buttons
+        let restart_btn = CreateButton::new(button_ids::RESTART)
+            .emoji('🔄')
+            .style(ButtonStyle::Secondary);
+
         let vol_down_btn = CreateButton::new(button_ids::VOLUME_DOWN)
             .emoji('🔉')
             .style(ButtonStyle::Secondary);
@@ -117,7 +122,7 @@ impl MusicControls {
             .emoji('🎛')
             .style(ButtonStyle::Secondary);
 
-        let row2 = CreateActionRow::Buttons(vec![vol_down_btn, vol_up_btn, queue_btn, effects_btn]);
+        let row2 = CreateActionRow::Buttons(vec![restart_btn, vol_down_btn, vol_up_btn, queue_btn, effects_btn]);
 
         vec![row1, row2]
     }
@@ -304,7 +309,11 @@ impl MusicControls {
             loop_btn,
         ]);
 
-        // Segunda fila: Controles de audio y información
+        // Segunda fila: Controles de audio e información
+        let restart_btn = CreateButton::new(button_ids::RESTART)
+            .emoji('🔄')
+            .style(ButtonStyle::Secondary);
+
         let vol_down_btn = CreateButton::new(button_ids::VOLUME_DOWN)
             .emoji('🔉')
             .style(ButtonStyle::Secondary);
@@ -323,7 +332,7 @@ impl MusicControls {
             .emoji('🎛')
             .style(ButtonStyle::Secondary);
 
-        let row2 = CreateActionRow::Buttons(vec![vol_down_btn, vol_up_btn, queue_btn, effects_btn]);
+        let row2 = CreateActionRow::Buttons(vec![restart_btn, vol_down_btn, vol_up_btn, queue_btn, effects_btn]);
 
         vec![row1, row2]
     }
@@ -602,6 +611,29 @@ pub async fn handle_music_component(
                 update_response(ctx, interaction, "❌ No hay conexión de voz activa").await?;
             }
         }
+        button_ids::RESTART => {
+            interaction.defer(&ctx.http).await?;
+
+            if let Some(handler) = bot.get_voice_handler(guild_id) {
+                match player.get_current_track(guild_id).await {
+                    Some(current) => {
+                        match player.play_source_now(guild_id, current.clone(), handler).await {
+                            Ok(_) => {
+                                update_response(ctx, interaction, &format!("🔄 Reiniciando: {}", current.title())).await?;
+                            }
+                            Err(_) => {
+                                update_response(ctx, interaction, "❌ No se pudo reiniciar la canción").await?;
+                            }
+                        }
+                    }
+                    None => {
+                        update_response(ctx, interaction, "❌ No hay nada reproduciéndose").await?;
+                    }
+                }
+            } else {
+                update_response(ctx, interaction, "❌ No hay conexión de voz activa").await?;
+            }
+        }
         button_ids::STOP => {
             interaction.defer(&ctx.http).await?;
             player.stop(guild_id).await?;
@@ -680,7 +712,7 @@ pub async fn handle_music_component(
             }
         }
         button_ids::EFFECTS => {
-            let eq_details = player.get_equalizer_details();
+            let eq_details = player.get_equalizer_details(guild_id);
             
             let mut status = String::new();
             status.push_str("🎛️ **Estado del Ecualizador**\n\n");

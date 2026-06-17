@@ -317,6 +317,8 @@ pub fn create_help_embed() -> CreateEmbed {
             • `/pause` - Pausa la reproducción\n\
             • `/resume` - Reanuda la reproducción\n\
             • `/skip [cantidad]` - Salta canciones\n\
+            • `/previous` - Vuelve a la canción anterior\n\
+            • `/restart` - Reinicia la canción actual\n\
             • `/stop` - Detiene y limpia la cola",
             false,
         )
@@ -491,8 +493,8 @@ pub async fn create_equalizer_status_embed(guild_id: serenity::model::id::GuildI
 
 /// Crea un embed para mostrar el estado del ecualizador
 #[allow(dead_code)]
-pub async fn create_effects_status_embed(_guild_id: serenity::model::id::GuildId, bot: &OpenMusicBot) -> anyhow::Result<CreateEmbed> {
-    let eq_details = bot.player.get_equalizer_details();
+pub async fn create_effects_status_embed(guild_id: serenity::model::id::GuildId, bot: &OpenMusicBot) -> anyhow::Result<CreateEmbed> {
+    let eq_details = bot.player.get_equalizer_details(guild_id);
     
     let description = format!("**Estado Actual:** 🎛️ {}\n\n**Presets de Ecualizador Disponibles:**\n🎵 **Bass** - Enfatiza graves\n🎤 **Pop** - Equilibrado moderno\n🎸 **Rock** - Graves y agudos\n🎺 **Jazz** - Claridad vocal\n🎼 **Classical** - Dinámico natural\n🔊 **Electronic** - Sintético\n🗣️ **Vocal** - Enfatiza voces\n📏 **Flat** - Sin modificaciones", eq_details);
     

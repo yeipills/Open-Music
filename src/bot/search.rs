@@ -305,8 +305,11 @@ fn create_track_selection_menu(tracks: &[TrackSource]) -> CreateSelectMenu {
         };
 
         let label = format!("{}{}{}", track.title(), artist_str, duration_str);
-        let truncated_label = if label.len() > 100 {
-            format!("{}...", &label[..97])
+        // Truncar por caracteres (no por bytes): cortar a mitad de un carácter
+        // UTF-8 —títulos con acentos o emojis— provocaría un pánico en runtime.
+        let truncated_label = if label.chars().count() > 100 {
+            let truncated: String = label.chars().take(97).collect();
+            format!("{}...", truncated)
         } else {
             label
         };

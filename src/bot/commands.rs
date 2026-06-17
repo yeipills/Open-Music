@@ -16,6 +16,7 @@ pub async fn register_global_commands(ctx: &Context) -> Result<()> {
         resume_command(),
         skip_command(),
         previous_command(),
+        restart_command(),
         stop_command(),
         queue_command(),
         nowplaying_command(),
@@ -53,6 +54,7 @@ pub async fn register_guild_commands(ctx: &Context, guild_id: GuildId) -> Result
         resume_command(),
         skip_command(),
         previous_command(),
+        restart_command(),
         stop_command(),
         queue_command(),
         nowplaying_command(),
@@ -158,6 +160,12 @@ fn skip_command() -> CreateCommand {
 fn previous_command() -> CreateCommand {
     CreateCommand::new("previous")
         .description("Vuelve a la canción anterior")
+        .dm_permission(false)
+}
+
+fn restart_command() -> CreateCommand {
+    CreateCommand::new("restart")
+        .description("Reinicia la canción actual desde el principio")
         .dm_permission(false)
 }
 

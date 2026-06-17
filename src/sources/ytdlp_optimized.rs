@@ -313,18 +313,21 @@ impl MusicSource for YtDlpOptimizedClient {
             debug!("🔗 Partes: {:?}", parts);
 
             if parts.len() >= 4 {
-                let track = TrackSource::new(
+                let mut track = TrackSource::new(
                     parts[1].to_string(), // title
                     parts[0].to_string(), // url
                     SourceType::YouTube,
                     UserId::new(1), // placeholder válido, será asignado después
-                )
-                .with_artist(parts[2].to_string())
-                .with_duration(
-                    parts[3].parse::<f64>().ok()
-                        .map(|d| Duration::from_secs_f64(d))
-                        .unwrap_or(Duration::from_secs(0))
                 );
+
+                // Solo asignar artista si yt-dlp lo proveyó (evita mostrar "NA").
+                if !parts[2].is_empty() && parts[2] != "NA" {
+                    track = track.with_artist(parts[2].to_string());
+                }
+
+                if let Some(secs) = parts[3].parse::<f64>().ok() {
+                    track = track.with_duration(Duration::from_secs_f64(secs));
+                }
 
                 debug!("✅ Track creado: {}", track.title());
                 tracks.push(track);
@@ -515,26 +518,9 @@ impl TrackSource {
             anyhow::bail!("Solo se soportan URLs de YouTube");
         }
 
-        // Configurar opciones específicas para fallback sin cookies (2025 anti-bot)
-        std::env::set_var("YTDL_OPTIONS", 
-            "--format=bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/18/17/36/5/43/34/35/44/45/46 \
-             --extractor-args='youtube:player_client=android,android_embedded,android_creator,android_music,ios,ios_embedded,ios_creator,ios_music,mweb,web_embedded,web_creator,web_music,web_safari' \
-             --user-agent='com.google.android.youtube/19.09.37 (Linux; U; Android 13; SM-G998B Build/TP1A.220624.014) gzip' \
-             --add-header='X-YouTube-Client-Name: 3' \
-             --add-header='X-YouTube-Client-Version: 19.09.37' \
-             --add-header='Origin: https://www.youtube.com' \
-             --add-header='Referer: https://www.youtube.com/' \
-             --no-check-certificate \
-             --no-playlist \
-             --quiet \
-             --ignore-errors \
-             --no-abort-on-error \
-             --geo-bypass \
-             --force-ipv4 \
-             --socket-timeout=60 \
-             --retries=10 \
-             --retry-sleep=3"
-        );
+        // Nota: no se setea `YTDL_OPTIONS` vía env. Era un data race (mutación
+        // global del entorno en runtime multihilo) y además inútil: songbird
+        // `YoutubeDl` invoca yt-dlp con sus propios argumentos y no lee esa var.
 
         // Crear cliente HTTP básico con Android YouTube App User-Agent
         let client = reqwest::Client::builder()

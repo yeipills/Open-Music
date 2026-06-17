@@ -170,6 +170,7 @@ pub async fn handle_command(
         "clear" => handle_clear(ctx, command, bot).await?,
         "playlist" => handle_playlist(ctx, command, bot).await?,
         "previous" => handle_previous(ctx, command, bot).await?,
+        "restart" => handle_restart(ctx, command, bot).await?,
         "seek" => handle_seek(ctx, command, bot).await?,
         "add" => handle_add(ctx, command, bot).await?,
         "remove" => handle_remove(ctx, command, bot).await?,
@@ -421,6 +422,10 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
     // Establecer el usuario que solicitó la canción
     track_source = track_source.with_requested_by(command.user.id);
 
+    // ¿Había algo sonando antes? Si no, este tema arranca ya y mostramos el
+    // "now playing"; si sí, solo se encoló y basta con el embed de "agregado".
+    let was_playing = bot.player.is_playing(guild_id).await;
+
     // Agregar a la cola y reproducir
     if let Some(handler) = bot.get_voice_handler(guild_id) {
         match bot.player.play(guild_id, track_source.clone(), handler).await {
@@ -435,10 +440,12 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
                     warn!("Error al editar respuesta: {}", e);
                 }
 
-                // Enviar mensaje de "now playing" con botones mejorados en el canal
-                // Esperar un momento para que la canción se procese
+                // Enviar mensaje de "now playing" SOLO si este tema arrancó la
+                // reproducción (no si simplemente se agregó a una cola activa).
+                // Esperar un momento para que la canción se procese.
+                if !was_playing {
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                
+
                 if let Some(current_track) = bot.player.get_current_track(guild_id).await {
                     let now_playing_embed = embeds::create_now_playing_embed_from_source(&current_track);
                     
@@ -460,6 +467,7 @@ async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
                         }
                     }
                 }
+                } // fin if !was_playing
             }
             Err(e) => {
                 warn!("Error al reproducir canción: {}", e);
@@ -569,23 +577,28 @@ async fn handle_skip(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
         .iter()
         .find(|opt| opt.name == "amount")
         .and_then(|opt| opt.value.as_i64())
-        .unwrap_or(1) as usize;
+        .unwrap_or(1)
+        .max(1) as usize;
 
-    // Obtener el handler para reproducir la siguiente canción
-    if let Some(handler) = bot.get_voice_handler(guild_id) {
-        bot.player.skip_tracks(guild_id, amount, handler).await?;
-    } else {
-        anyhow::bail!("No hay conexión de voz activa");
-    }
-
+    // Defer: obtener el audio de la siguiente canción puede tardar (yt-dlp) y
+    // superar el límite de 3 s de la interacción.
     command
         .create_response(
             &ctx.http,
-            CreateInteractionResponse::Message(
-                CreateInteractionResponseMessage::new()
-                    .content(format!("⏭️ Saltadas {} canciones", amount)),
-            ),
+            CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new()),
         )
+        .await?;
+
+    use serenity::builder::EditInteractionResponse;
+    let content = if let Some(handler) = bot.get_voice_handler(guild_id) {
+        bot.player.skip_tracks(guild_id, amount, handler).await?;
+        format!("⏭️ Saltadas {} canciones", amount)
+    } else {
+        "❌ No hay conexión de voz activa".to_string()
+    };
+
+    command
+        .edit_response(&ctx.http, EditInteractionResponse::new().content(content))
         .await?;
 
     Ok(())
@@ -667,7 +680,7 @@ async fn handle_nowplaying(
         let mut embed = embeds::create_now_playing_embed_from_source(&current);
         
         // Agregar información del ecualizador
-        let eq_details = bot.player.get_equalizer_details();
+        let eq_details = bot.player.get_equalizer_details(guild_id);
         embed = embed.field("🎛️ Audio", eq_details, false);
         
         // Agregar estadísticas de volumen
@@ -892,18 +905,24 @@ async fn handle_leave(
 async fn handle_previous(ctx: &Context, command: CommandInteraction, bot: &OpenMusicBot) -> Result<()> {
     let guild_id = command.guild_id.unwrap();
 
-    // Validar conexión de voz
+    // Defer: reproducir el track anterior puede tardar (yt-dlp).
+    command
+        .create_response(
+            &ctx.http,
+            CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new()),
+        )
+        .await?;
+
+    use serenity::builder::EditInteractionResponse;
+
     let handler = match bot.get_voice_handler(guild_id) {
         Some(h) => h,
         None => {
             command
-                .create_response(
+                .edit_response(
                     &ctx.http,
-                    CreateInteractionResponse::Message(
-                        CreateInteractionResponseMessage::new()
-                            .content("❌ El bot no está conectado a un canal de voz")
-                            .ephemeral(true),
-                    ),
+                    EditInteractionResponse::new()
+                        .content("❌ El bot no está conectado a un canal de voz"),
                 )
                 .await?;
             return Ok(());
@@ -916,33 +935,67 @@ async fn handle_previous(ctx: &Context, command: CommandInteraction, bot: &OpenM
         q.previous_track()
     };
 
-    if let Some(source) = previous_source {
-        // Reproducir el track anterior
-        if let Err(e) = bot.player.play(guild_id, source.clone(), handler).await {
+    let content = if let Some(source) = previous_source {
+        // `previous_track` ya fijó el track anterior como actual; lo reproducimos
+        // de inmediato sin volver a encolarlo.
+        if let Err(e) = bot.player.play_source_now(guild_id, source.clone(), handler).await {
             warn!("Error reproduciendo track anterior: {:?}", e);
         }
-
-        command
-            .create_response(
-                &ctx.http,
-                CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content(format!("⏮️ Volviendo a: **{}**", source.title())),
-                ),
-            )
-            .await?;
+        format!("⏮️ Volviendo a: **{}**", source.title())
     } else {
-        command
-            .create_response(
-                &ctx.http,
-                CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content("❌ No hay canciones anteriores en el historial")
-                        .ephemeral(true),
-                ),
-            )
-            .await?;
-    }
+        "❌ No hay canciones anteriores en el historial".to_string()
+    };
+
+    command
+        .edit_response(&ctx.http, EditInteractionResponse::new().content(content))
+        .await?;
+
+    Ok(())
+}
+
+async fn handle_restart(ctx: &Context, command: CommandInteraction, bot: &OpenMusicBot) -> Result<()> {
+    let guild_id = command.guild_id.unwrap();
+
+    // Defer: volver a abrir el stream del tema actual puede tardar (yt-dlp).
+    command
+        .create_response(
+            &ctx.http,
+            CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new()),
+        )
+        .await?;
+
+    use serenity::builder::EditInteractionResponse;
+
+    let handler = match bot.get_voice_handler(guild_id) {
+        Some(h) => h,
+        None => {
+            command
+                .edit_response(
+                    &ctx.http,
+                    EditInteractionResponse::new()
+                        .content("❌ El bot no está conectado a un canal de voz"),
+                )
+                .await?;
+            return Ok(());
+        }
+    };
+
+    let content = match bot.player.get_current_track(guild_id).await {
+        Some(current) => {
+            // Reproducir el tema actual desde el inicio (get_input arranca en 0).
+            if let Err(e) = bot.player.play_source_now(guild_id, current.clone(), handler).await {
+                warn!("Error reiniciando track: {:?}", e);
+                "❌ No se pudo reiniciar la canción".to_string()
+            } else {
+                format!("🔁 Reiniciando: **{}**", current.title())
+            }
+        }
+        None => "❌ No hay nada reproduciéndose".to_string(),
+    };
+
+    command
+        .edit_response(&ctx.http, EditInteractionResponse::new().content(content))
+        .await?;
 
     Ok(())
 }
@@ -1109,18 +1162,24 @@ async fn handle_jump(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
         .and_then(|opt| opt.value.as_i64())
         .ok_or_else(|| anyhow::anyhow!("Posición requerida"))? as usize;
 
-    // Validar conexión de voz
+    // Defer: reproducir el track objetivo puede tardar (yt-dlp).
+    command
+        .create_response(
+            &ctx.http,
+            CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new()),
+        )
+        .await?;
+
+    use serenity::builder::EditInteractionResponse;
+
     let handler = match bot.get_voice_handler(guild_id) {
         Some(h) => h,
         None => {
             command
-                .create_response(
+                .edit_response(
                     &ctx.http,
-                    CreateInteractionResponse::Message(
-                        CreateInteractionResponseMessage::new()
-                            .content("❌ El bot no está conectado a un canal de voz")
-                            .ephemeral(true),
-                    ),
+                    EditInteractionResponse::new()
+                        .content("❌ El bot no está conectado a un canal de voz"),
                 )
                 .await?;
             return Ok(());
@@ -1134,29 +1193,25 @@ async fn handle_jump(ctx: &Context, command: CommandInteraction, bot: &OpenMusic
     };
 
     if let Some(source) = jump_result {
-        // Reproducir el track
-        if let Err(e) = bot.player.play(guild_id, source.clone(), handler).await {
+        // `jump_to` ya fijó el track objetivo como actual; lo reproducimos de
+        // inmediato (deteniendo lo que sonaba) en vez de re-encolarlo.
+        if let Err(e) = bot.player.play_source_now(guild_id, source.clone(), handler).await {
             warn!("Error reproduciendo track: {:?}", e);
         }
 
         command
-            .create_response(
+            .edit_response(
                 &ctx.http,
-                CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content(format!("🎯 Saltando a posición {}: **{}**", position, source.title())),
-                ),
+                EditInteractionResponse::new()
+                    .content(format!("🎯 Saltando a posición {}: **{}**", position, source.title())),
             )
             .await?;
     } else {
         command
-            .create_response(
+            .edit_response(
                 &ctx.http,
-                CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content(format!("❌ Posición {} no válida", position))
-                        .ephemeral(true),
-                ),
+                EditInteractionResponse::new()
+                    .content(format!("❌ Posición {} no válida", position)),
             )
             .await?;
     }
@@ -1279,15 +1334,25 @@ async fn handle_equalizer(
     };
 
     bot.player.apply_equalizer_preset(guild_id, preset).await?;
-    
+
     info!("✅ Ecualizador aplicado: {:?}", preset);
+
+    // El filtro ffmpeg se fija al iniciar cada tema, así que si ya hay algo
+    // sonando el preset recién se nota desde la próxima canción.
+    let content = if bot.player.is_playing(guild_id).await {
+        format!(
+            "🎛️ Preset **{}** activado.\n⏭️ Se aplicará desde la **próxima canción** (o usá `/restart` para oírlo ya en la actual).",
+            preset_name
+        )
+    } else {
+        format!("🎛️ Preset de ecualizador **{}** aplicado", preset_name)
+    };
 
     command
         .create_response(
             &ctx.http,
             CreateInteractionResponse::Message(
-                CreateInteractionResponseMessage::new()
-                    .content(format!("🎛️ Preset de ecualizador '{}' aplicado", preset_name)),
+                CreateInteractionResponseMessage::new().content(content),
             ),
         )
         .await?;

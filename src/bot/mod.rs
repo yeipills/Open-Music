@@ -112,7 +112,7 @@ impl OpenMusicBot {
     /// ```
     pub fn new(config: Config, storage: Arc<tokio::sync::Mutex<JsonStorage>>, cache: Arc<MusicCache>, monitoring: Arc<MonitoringSystem>) -> Self {
         let config = Arc::new(config);
-        let player = Arc::new(AudioPlayer::new());
+        let player = Arc::new(AudioPlayer::new(config.default_volume));
 
         Self {
             config,

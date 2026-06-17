@@ -43,23 +43,13 @@
 //!
 //! ## Example Usage
 //!
-//! ```rust,no_run
-//! use open_music::audio::{player::AudioPlayer, queue::MusicQueue};
-//! use serenity::all::GuildId;
-//!
-//! # async fn example() -> anyhow::Result<()> {
-//! let player = AudioPlayer::new();
-//! let guild_id = GuildId::from(123456789);
-//!
-//! // Play a track
-//! player.play(guild_id, "https://example.com/song.mp3").await?;
-//!
-//! // Control playback
+//! ```text
+//! let player = AudioPlayer::new(default_volume);
+//! // Encolar y reproducir (requiere un handler de voz de songbird):
+//! player.play(guild_id, track_source, handler).await?;
 //! player.pause(guild_id).await?;
 //! player.resume(guild_id).await?;
-//! player.skip(guild_id).await?;
-//! # Ok(())
-//! # }
+//! player.skip_tracks(guild_id, 1, handler).await?;
 //! ```
 
 pub mod effects;

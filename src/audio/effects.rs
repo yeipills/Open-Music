@@ -1,4 +1,5 @@
-use parking_lot::RwLock;
+use dashmap::DashMap;
+use serenity::model::id::GuildId;
 use tracing::info;
 
 /// Presets de ecualizador disponibles
@@ -14,28 +15,32 @@ pub enum EqualizerPreset {
     Vocal,
 }
 
-/// Sistema de ecualizador con presets
+/// Sistema de ecualizador con presets, **por servidor (guild)**.
+///
+/// Antes había un único preset global compartido por todas las guilds: cambiarlo
+/// en un servidor afectaba a todos. Ahora cada guild tiene el suyo.
 pub struct AudioEffects {
-    current_preset: RwLock<EqualizerPreset>,
+    presets: DashMap<GuildId, EqualizerPreset>,
 }
 
 impl AudioEffects {
     pub fn new() -> Self {
         info!("🎛️ Sistema de ecualizador inicializado");
         Self {
-            current_preset: RwLock::new(EqualizerPreset::Flat),
+            presets: DashMap::new(),
         }
     }
 
-    /// Construye la cadena de filtros ffmpeg (`-af`) para el preset actual.
+    /// Construye la cadena de filtros ffmpeg (`-af`) para el preset de la guild.
     ///
     /// Siempre incluye `loudnorm` (EBU R128) para igualar el volumen percibido entre
     /// temas, y añade bandas `equalizer` según el preset. Para `Flat` solo normaliza.
-    pub fn build_filter(&self) -> String {
+    pub fn build_filter(&self, guild_id: GuildId) -> String {
         // loudnorm de una sola pasada: consistente y apto para streaming.
         let loudnorm = "loudnorm=I=-16:TP=-1.5:LRA=11";
 
-        let eq = match self.get_current_preset() {
+        let preset = self.get_current_preset(guild_id);
+        let eq = match preset {
             EqualizerPreset::Flat => "",
             // f=frecuencia(Hz), t=o (ancho en octavas), w=ancho, g=ganancia(dB)
             EqualizerPreset::Bass =>
@@ -59,24 +64,24 @@ impl AudioEffects {
         } else {
             format!("{},{}", loudnorm, eq)
         };
-        info!("🎛️ Filtro ffmpeg ({:?}): {}", self.get_current_preset(), filter);
+        info!("🎛️ Filtro ffmpeg ({:?}) guild {}: {}", preset, guild_id, filter);
         filter
     }
 
-    /// Aplica preset de ecualizador
-    pub fn apply_equalizer_preset(&self, preset: EqualizerPreset) {
-        *self.current_preset.write() = preset;
-        info!("🎛️ Preset de ecualizador aplicado: {:?}", preset);
+    /// Aplica preset de ecualizador a una guild
+    pub fn apply_equalizer_preset(&self, guild_id: GuildId, preset: EqualizerPreset) {
+        self.presets.insert(guild_id, preset);
+        info!("🎛️ Preset de ecualizador aplicado: {:?} (guild {})", preset, guild_id);
     }
 
-    /// Obtiene preset actual
-    pub fn get_current_preset(&self) -> EqualizerPreset {
-        *self.current_preset.read()
+    /// Obtiene el preset actual de la guild (Flat por defecto)
+    pub fn get_current_preset(&self, guild_id: GuildId) -> EqualizerPreset {
+        self.presets.get(&guild_id).map(|p| *p).unwrap_or(EqualizerPreset::Flat)
     }
 
-    /// Obtiene detalles del ecualizador
-    pub fn get_equalizer_details(&self) -> String {
-        let preset = self.get_current_preset();
+    /// Obtiene detalles del ecualizador de la guild
+    pub fn get_equalizer_details(&self, guild_id: GuildId) -> String {
+        let preset = self.get_current_preset(guild_id);
         match preset {
             EqualizerPreset::Flat => "Ecualizador: Plano".to_string(),
             EqualizerPreset::Bass => "Ecualizador: Bass Boost".to_string(),
@@ -89,10 +94,10 @@ impl AudioEffects {
         }
     }
 
-    /// Resetea el ecualizador a plano
+    /// Resetea el ecualizador de la guild a plano
     #[allow(dead_code)]
-    pub fn reset_equalizer(&self) {
-        self.apply_equalizer_preset(EqualizerPreset::Flat);
-        info!("🔄 Ecualizador reseteado a plano");
+    pub fn reset_equalizer(&self, guild_id: GuildId) {
+        self.apply_equalizer_preset(guild_id, EqualizerPreset::Flat);
+        info!("🔄 Ecualizador reseteado a plano (guild {})", guild_id);
     }
 }
