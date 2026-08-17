@@ -125,12 +125,15 @@ impl LazyFfmpegSource {
             // sobre una tubería que se está descargando en directo, eso son
             // varios segundos de silencio antes de la primera nota. El formato
             // ya lo imponemos nosotros con `-f`, así que no hace falta sondearlo.
+            //
+            // Deliberadamente **no** se usa `-fflags nobuffer`: reduce el búfer
+            // interno durante toda la reproducción, no sólo al principio, y ante
+            // cualquier irregularidad de la descarga provoca cortes audibles.
+            // La latencia baja se gana sondeando menos, no reproduciendo sin red.
             "-analyzeduration",
             "0",
             "-probesize",
             "32768",
-            "-fflags",
-            "nobuffer",
             "-i",
             "pipe:0",
         ]);

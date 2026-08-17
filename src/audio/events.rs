@@ -65,8 +65,40 @@ impl EventHandler for TrackPlayHandler {
             info!("Sonando: {} (guild {})", meta_of(handle).title, self.guild_id);
         }
 
+        preload_next(&player, self.guild_id);
         None
     }
+}
+
+/// Prepara la pista siguiente en cuanto arranca la actual.
+///
+/// Songbird ya precarga por su cuenta, pero sólo cinco segundos antes de que
+/// termine la canción en curso. Eso cubre el paso natural de un tema al
+/// siguiente y no cubre `/skip`: al saltar a mano, la pista entrante todavía no
+/// ha resuelto su URL y hay que esperar a yt-dlp, unos diez segundos de silencio
+/// medidos en producción.
+///
+/// Adelantar la creación cuesta un par de procesos extra, que además se quedan
+/// dormidos enseguida: ffmpeg se bloquea al llenar la tubería y no vuelve a
+/// gastar CPU hasta que alguien lee. Si la pista se descarta antes de sonar,
+/// `ChildContainer` mata la cadena al liberarse.
+fn preload_next(player: &Arc<AudioPlayer>, guild_id: GuildId) {
+    let player = player.clone();
+    tokio::spawn(async move {
+        let Some(call) = player.call(guild_id) else {
+            return;
+        };
+
+        // El bloqueo se suelta antes de tocar la pista: `make_playable` dispara
+        // la creación del input y no conviene retenerlo mientras tanto.
+        let queue = call.lock().await.queue().current_queue();
+        let Some(next) = queue.get(1) else {
+            return;
+        };
+
+        info!("Preparando la siguiente: {}", meta_of(next).title);
+        drop(next.make_playable());
+    });
 }
 
 /// Historial y repetición de cola.
