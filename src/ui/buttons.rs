@@ -58,7 +58,8 @@ impl MusicControls {
         is_looping: bool,
         is_shuffled: bool,
     ) -> Vec<CreateActionRow> {
-        let play_pause_label = if is_playing { "Pausar" } else { "Reproducir" };
+        let (play_pause_icon, play_pause_label) =
+            if is_playing { ('⏸', "Pausar") } else { ('▶', "Reproducir") };
         let loop_style = if is_looping {
             ButtonStyle::Success
         } else {
@@ -72,18 +73,22 @@ impl MusicControls {
 
         // First row of buttons
         let play_pause_btn = CreateButton::new(button_ids::PLAY_PAUSE)
+            .emoji(play_pause_icon)
             .label(play_pause_label)
             .style(ButtonStyle::Primary);
 
         let skip_btn = CreateButton::new(button_ids::SKIP)
+            .emoji('⏭')
             .label("Saltar")
             .style(ButtonStyle::Secondary);
 
         let stop_btn = CreateButton::new(button_ids::STOP)
+            .emoji('⏹')
             .label("Detener")
             .style(ButtonStyle::Danger);
 
         let shuffle_btn = CreateButton::new(button_ids::SHUFFLE)
+            .emoji('🔀')
             .label("Aleatorio")
             .style(shuffle_style);
 
@@ -101,22 +106,27 @@ impl MusicControls {
 
         // Second row of buttons
         let restart_btn = CreateButton::new(button_ids::RESTART)
+            .emoji('🔄')
             .label("Reiniciar")
             .style(ButtonStyle::Secondary);
 
         let vol_down_btn = CreateButton::new(button_ids::VOLUME_DOWN)
+            .emoji('🔉')
             .label("Vol -")
             .style(ButtonStyle::Secondary);
 
         let vol_up_btn = CreateButton::new(button_ids::VOLUME_UP)
+            .emoji('🔊')
             .label("Vol +")
             .style(ButtonStyle::Secondary);
 
         let queue_btn = CreateButton::new(button_ids::QUEUE)
+            .emoji('📋')
             .label("Cola")
             .style(ButtonStyle::Secondary);
 
         let effects_btn = CreateButton::new(button_ids::EFFECTS)
+            .emoji('🎛')
             .label("Efectos")
             .style(ButtonStyle::Secondary);
 
@@ -129,11 +139,13 @@ impl MusicControls {
     #[allow(dead_code)]
     pub fn create_pagination_controls(current_page: usize, total_pages: usize) -> CreateActionRow {
         let prev_btn = CreateButton::new(button_ids::PREVIOUS_PAGE)
+            .emoji('◀')
             .label("Anterior")
             .style(ButtonStyle::Primary)
             .disabled(current_page == 0);
 
         let next_btn = CreateButton::new(button_ids::NEXT_PAGE)
+            .emoji('▶')
             .label("Siguiente")
             .style(ButtonStyle::Primary)
             .disabled(current_page >= total_pages - 1);
@@ -150,22 +162,27 @@ impl MusicControls {
     pub fn create_playlist_controls() -> Vec<CreateActionRow> {
         // Primera fila: Controles básicos de playlist
         let load_btn = CreateButton::new(button_ids::PLAYLIST_LOAD)
+            .emoji('📥')
             .label("Cargar")
             .style(ButtonStyle::Success);
 
         let preview_btn = CreateButton::new(button_ids::PLAYLIST_PREVIEW)
+            .emoji('👁')
             .label("Vista Previa")
             .style(ButtonStyle::Secondary);
 
         let save_btn = CreateButton::new(button_ids::PLAYLIST_SAVE)
+            .emoji('💾')
             .label("Guardar")
             .style(ButtonStyle::Primary);
 
         let shuffle_btn = CreateButton::new(button_ids::PLAYLIST_SHUFFLE)
+            .emoji('🔀')
             .label("Mezclar")
             .style(ButtonStyle::Secondary);
 
         let info_btn = CreateButton::new(button_ids::PLAYLIST_INFO)
+            .emoji('ℹ')
             .label("Info")
             .style(ButtonStyle::Secondary);
 
@@ -178,10 +195,12 @@ impl MusicControls {
     #[allow(dead_code)]
     pub fn create_playlist_confirmation_controls() -> CreateActionRow {
         let confirm_btn = CreateButton::new(button_ids::PLAYLIST_CONFIRM)
+            .emoji('✅')
             .label("Sí, agregar playlist")
             .style(ButtonStyle::Success);
 
         let cancel_btn = CreateButton::new(button_ids::PLAYLIST_CANCEL)
+            .emoji('❌')
             .label("Cancelar")
             .style(ButtonStyle::Danger);
 
@@ -193,18 +212,22 @@ impl MusicControls {
     pub fn create_advanced_playlist_controls() -> Vec<CreateActionRow> {
         // Primera fila: Operaciones principales
         let manage_btn = CreateButton::new(button_ids::PLAYLIST_MANAGE)
+            .emoji('⚙')
             .label("Gestionar")
             .style(ButtonStyle::Primary);
             
         let remove_btn = CreateButton::new(button_ids::PLAYLIST_REMOVE)
+            .emoji('🗑')
             .label("Remover")
             .style(ButtonStyle::Danger);
             
         let remove_dupes_btn = CreateButton::new(button_ids::PLAYLIST_REMOVE_DUPLICATES)
+            .emoji('🔄')
             .label("Sin Duplicados")
             .style(ButtonStyle::Secondary);
             
         let queue_pos_btn = CreateButton::new(button_ids::PLAYLIST_QUEUE_POSITION)
+            .emoji('📍')
             .label("Posición")
             .style(ButtonStyle::Secondary);
             
@@ -212,10 +235,12 @@ impl MusicControls {
         
         // Segunda fila: Funciones sociales
         let history_btn = CreateButton::new(button_ids::PLAYLIST_HISTORY)
+            .emoji('📚')
             .label("Historial")
             .style(ButtonStyle::Secondary);
             
         let share_btn = CreateButton::new(button_ids::PLAYLIST_SHARE)
+            .emoji('📤')
             .label("Compartir")
             .style(ButtonStyle::Secondary);
             
@@ -234,11 +259,13 @@ impl MusicControls {
         };
         
         let progress_btn = CreateButton::new("playlist_progress")
+            .emoji('⏳')
             .label(&progress_text)
             .style(ButtonStyle::Secondary)
             .disabled(true);
             
         let cancel_btn = CreateButton::new(button_ids::PLAYLIST_CANCEL)
+            .emoji('❌')
             .label("Cancelar")
             .style(ButtonStyle::Danger);
             
@@ -253,32 +280,38 @@ impl MusicControls {
         has_queue: bool,
         loop_mode: &str
     ) -> Vec<CreateActionRow> {
-        let play_pause_label = if is_playing { "Pausar" } else { "Reproducir" };
-        let loop_label = match loop_mode {
-            "track" => "Repetir tema",
-            "queue" => "Repetir cola",
-            _ => "Repetir",
+        let (play_pause_icon, play_pause_label) =
+            if is_playing { ('⏸', "Pausar") } else { ('▶', "Reproducir") };
+        let (loop_icon, loop_label) = match loop_mode {
+            "track" => ('🔂', "Repetir tema"),
+            "queue" => ('🔁', "Repetir cola"),
+            _ => ('➡', "Repetir"),
         };
         
         // Primera fila: Controles principales
         let play_pause_btn = CreateButton::new(button_ids::PLAY_PAUSE)
+            .emoji(play_pause_icon)
             .label(play_pause_label)
             .style(if is_playing { ButtonStyle::Secondary } else { ButtonStyle::Success });
 
         let skip_btn = CreateButton::new(button_ids::SKIP)
+            .emoji('⏭')
             .label("Saltar")
             .style(ButtonStyle::Primary)
             .disabled(!has_queue);
 
         let stop_btn = CreateButton::new(button_ids::STOP)
+            .emoji('⏹')
             .label("Detener")
             .style(ButtonStyle::Danger);
 
         let shuffle_btn = CreateButton::new(button_ids::SHUFFLE)
+            .emoji('🔀')
             .label("Aleatorio")
             .style(ButtonStyle::Secondary);
 
         let loop_btn = CreateButton::new(button_ids::LOOP_TRACK)
+            .emoji(loop_icon)
             .label(loop_label)
             .style(ButtonStyle::Secondary);
 
@@ -292,22 +325,27 @@ impl MusicControls {
 
         // Segunda fila: Controles de audio e información
         let restart_btn = CreateButton::new(button_ids::RESTART)
+            .emoji('🔄')
             .label("Reiniciar")
             .style(ButtonStyle::Secondary);
 
         let vol_down_btn = CreateButton::new(button_ids::VOLUME_DOWN)
+            .emoji('🔉')
             .label("Vol -")
             .style(ButtonStyle::Secondary);
 
         let vol_up_btn = CreateButton::new(button_ids::VOLUME_UP)
+            .emoji('🔊')
             .label("Vol +")
             .style(ButtonStyle::Secondary);
 
         let queue_btn = CreateButton::new(button_ids::QUEUE)
+            .emoji('📋')
             .label("Cola")
             .style(ButtonStyle::Secondary);
 
         let effects_btn = CreateButton::new(button_ids::EFFECTS)
+            .emoji('🎛')
             .label("Efectos")
             .style(ButtonStyle::Secondary);
 
@@ -336,6 +374,7 @@ pub fn create_enhanced_player_buttons(is_playing: bool, has_queue: bool, loop_mo
 #[allow(dead_code)]
 pub fn create_retry_button() -> CreateActionRow {
     let retry_btn = CreateButton::new("retry_action")
+        .emoji('🔄')
         .label("Reintentar")
         .style(ButtonStyle::Primary);
     
@@ -350,6 +389,7 @@ pub fn create_confirmation_buttons(action_id: &str) -> CreateActionRow {
         .style(ButtonStyle::Success);
     
     let cancel_btn = CreateButton::new("cancel_action")
+        .emoji('❌')
         .label("Cancelar")
         .style(ButtonStyle::Danger);
     
@@ -360,11 +400,13 @@ pub fn create_confirmation_buttons(action_id: &str) -> CreateActionRow {
 #[allow(dead_code)]
 pub fn create_navigation_buttons(has_prev: bool, has_next: bool, current_page: usize, total_pages: usize) -> CreateActionRow {
     let first_btn = CreateButton::new("nav_first")
+        .emoji('⏪')
         .label("Primera")
         .style(ButtonStyle::Secondary)
         .disabled(!has_prev || current_page == 1);
     
     let prev_btn = CreateButton::new("nav_prev")
+        .emoji('◀')
         .label("Anterior")
         .style(ButtonStyle::Primary)
         .disabled(!has_prev);
@@ -375,11 +417,13 @@ pub fn create_navigation_buttons(has_prev: bool, has_next: bool, current_page: u
         .disabled(true);
     
     let next_btn = CreateButton::new("nav_next")
+        .emoji('▶')
         .label("Siguiente")
         .style(ButtonStyle::Primary)
         .disabled(!has_next);
     
     let last_btn = CreateButton::new("nav_last")
+        .emoji('⏩')
         .label("Ultima")
         .style(ButtonStyle::Secondary)
         .disabled(!has_next || current_page == total_pages);
@@ -391,6 +435,7 @@ pub fn create_navigation_buttons(has_prev: bool, has_next: bool, current_page: u
 #[allow(dead_code)]
 pub fn create_volume_control_buttons(current_volume: f32) -> CreateActionRow {
     let mute_btn = CreateButton::new("volume_mute")
+        .emoji(if current_volume == 0.0 { '🔊' } else { '🔇' })
         .label(if current_volume == 0.0 { "Activar" } else { "Silenciar" })
         .style(if current_volume == 0.0 { ButtonStyle::Success } else { ButtonStyle::Secondary });
     

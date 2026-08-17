@@ -116,7 +116,24 @@ impl LazyFfmpegSource {
 
         let filter = (self.filter)();
         let mut ffmpeg_cmd = Command::new("ffmpeg");
-        ffmpeg_cmd.args(["-hide_banner", "-loglevel", "error", "-i", "pipe:0"]);
+        ffmpeg_cmd.args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            // Arrancar en cuanto haya datos. Por defecto ffmpeg acumula hasta
+            // 5 MB (`probesize`) o 5 s (`analyzeduration`) antes de emitir nada:
+            // sobre una tubería que se está descargando en directo, eso son
+            // varios segundos de silencio antes de la primera nota. El formato
+            // ya lo imponemos nosotros con `-f`, así que no hace falta sondearlo.
+            "-analyzeduration",
+            "0",
+            "-probesize",
+            "32768",
+            "-fflags",
+            "nobuffer",
+            "-i",
+            "pipe:0",
+        ]);
         // `-ss` va **después** de `-i`: con una tubería el seek rápido no es
         // fiable, y el seek de salida sí es exacto (decodifica y descarta).
         if let Some(pos) = self.seek {

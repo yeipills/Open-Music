@@ -54,42 +54,42 @@ impl Display for BotError {
             Self::Other(msg) => f.write_str(msg),
             Self::Dynamic(msg) => f.write_str(msg),
 
-            Self::NotInGuild => f.write_str("Este comando solo funciona dentro de un servidor"),
-            Self::NotConnected => f.write_str("No estoy conectado a ningún canal de voz"),
+            Self::NotInGuild => f.write_str("❌ Este comando solo funciona dentro de un servidor"),
+            Self::NotConnected => f.write_str("❌ No estoy conectado a ningún canal de voz"),
             Self::AuthorNotFound => {
-                f.write_str("Tenés que estar en un canal de voz para usar este comando")
+                f.write_str("❌ Tenés que estar en un canal de voz para usar este comando")
             }
             Self::AuthorDisconnected(mention) => f.write_fmt(format_args!(
-                "Estoy reproduciendo en {mention} — unite a ese canal para controlarme"
+                "❌ Estoy reproduciendo en {mention} — unite a ese canal para controlarme"
             )),
             Self::WrongVoiceChannel => {
-                f.write_str("Tenés que estar en el mismo canal de voz que yo")
+                f.write_str("❌ Tenés que estar en el mismo canal de voz que yo")
             }
             Self::AlreadyConnected(mention) => {
-                f.write_fmt(format_args!("Ya estoy conectado en {mention}"))
+                f.write_fmt(format_args!("❌ Ya estoy conectado en {mention}"))
             }
 
-            Self::NothingPlaying => f.write_str("No hay nada reproduciéndose"),
-            Self::QueueEmpty => f.write_str("La cola está vacía"),
+            Self::NothingPlaying => f.write_str("❌ No hay nada reproduciéndose"),
+            Self::QueueEmpty => f.write_str("❌ La cola está vacía"),
             Self::NotInRange(param, value, lower, upper) => f.write_fmt(format_args!(
-                "`{param}` debe estar entre {lower} y {upper}, pero fue {value}"
+                "❌ `{param}` debe estar entre {lower} y {upper}, pero fue {value}"
             )),
-            Self::NoHistory => f.write_str("No hay canciones anteriores en el historial"),
+            Self::NoHistory => f.write_str("❌ No hay canciones anteriores en el historial"),
             Self::TrackFail(err) => {
                 if err.is_empty() {
-                    f.write_str("No se encontró la canción")
+                    f.write_str("❌ No se encontró la canción")
                 } else {
-                    f.write_fmt(format_args!("{err}"))
+                    f.write_fmt(format_args!("❌ {err}"))
                 }
             }
 
             Self::RateLimited => f.write_str(
-                "Estás enviando comandos muy rápido. Esperá unos segundos.",
+                "⏳ Estás enviando comandos muy rápido. Esperá unos segundos.",
             ),
-            Self::DjRequired => f.write_str("Este comando requiere el rol de DJ"),
+            Self::DjRequired => f.write_str("🎧 Este comando requiere el rol de DJ"),
 
-            Self::Serenity(err) => f.write_fmt(format_args!("Error de Discord: {err}")),
-            Self::Anyhow(err) => f.write_fmt(format_args!("{err}")),
+            Self::Serenity(err) => f.write_fmt(format_args!("❌ Error de Discord: {err}")),
+            Self::Anyhow(err) => f.write_fmt(format_args!("❌ {err}")),
         }
     }
 }

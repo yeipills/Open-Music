@@ -206,7 +206,7 @@ async fn run_command(
         "help" => handle_help(ctx, command).await,
         "health" => handle_health(ctx, command, bot).await,
         "metrics" => handle_metrics(ctx, command, bot).await,
-        _ => Err(BotError::Other("Comando no reconocido")),
+        _ => Err(BotError::Other("❌ Comando no reconocido")),
     }
 }
 
@@ -223,7 +223,7 @@ fn check_voice_requirements(
     let guild = ctx
         .cache
         .guild(guild_id)
-        .ok_or(BotError::Other("No encuentro este servidor en caché"))?
+        .ok_or(BotError::Other("❌ No encuentro este servidor en caché"))?
         .clone();
 
     let user_id = command.user.id;
@@ -371,7 +371,7 @@ pub async fn handle_component(
                     &ctx.http,
                     CreateInteractionResponse::Message(
                         CreateInteractionResponseMessage::new()
-                            .content("Acción no reconocida")
+                            .content("❌ Acción no reconocida")
                             .ephemeral(true),
                     ),
                 )
@@ -458,7 +458,7 @@ async fn handle_play(
 ) -> BotResult<()> {
     let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
     let query = option_str(command, "query")
-        .ok_or(BotError::Other("Falta la búsqueda o el enlace"))?
+        .ok_or(BotError::Other("❌ Falta la búsqueda o el enlace"))?
         .to_string();
 
     defer(ctx, command).await?;
@@ -542,7 +542,7 @@ async fn play_playlist_stream(
     let stdout = child
         .stdout
         .take()
-        .ok_or(BotError::Other("yt-dlp no devolvió salida"))?;
+        .ok_or(BotError::Other("❌ yt-dlp no devolvió salida"))?;
     let mut lines = tokio::io::BufReader::new(stdout).lines();
 
     let user_id = command.user.id;
@@ -631,7 +631,7 @@ async fn handle_pause(
     verify(bot.player.is_playing(guild_id).await, BotError::NothingPlaying)?;
 
     bot.player.pause(guild_id).await?;
-    reply(ctx, command, "Reproducción pausada").await
+    reply(ctx, command, "⏸️ Reproducción pausada").await
 }
 
 async fn handle_resume(
@@ -646,7 +646,7 @@ async fn handle_resume(
     )?;
 
     bot.player.resume(guild_id).await?;
-    reply(ctx, command, "Reproducción reanudada").await
+    reply(ctx, command, "▶️ Reproducción reanudada").await
 }
 
 async fn handle_skip(
@@ -666,8 +666,8 @@ async fn handle_skip(
     bot.player.skip_tracks(guild_id, amount).await?;
 
     let content = match bot.player.current_meta(guild_id).await {
-        Some(next) => format!("Ahora suena: **{}**", next.title),
-        None => "Cola terminada".to_string(),
+        Some(next) => format!("⏭️ Ahora suena: **{}**", next.title),
+        None => "⏭️ Cola terminada".to_string(),
     };
     edit(ctx, command, content).await
 }
@@ -687,7 +687,7 @@ async fn handle_stop(
     reply(
         ctx,
         command,
-        "Reproducción detenida y cola limpiada (me quedo por acá un rato)",
+        "⏹️ Reproducción detenida y cola limpiada (me quedo por acá un rato)",
     )
     .await
 }
@@ -701,7 +701,7 @@ async fn handle_leave(
 
     bot.player.stop(guild_id).await?;
     bot.leave_voice_channel(ctx, guild_id).await?;
-    reply(ctx, command, "Desconectado del canal de voz").await
+    reply(ctx, command, "👋 Desconectado del canal de voz").await
 }
 
 async fn handle_join(
@@ -711,7 +711,7 @@ async fn handle_join(
 ) -> BotResult<()> {
     let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
     ensure_connected(ctx, command, bot, guild_id).await?;
-    reply(ctx, command, "Conectado al canal de voz").await
+    reply(ctx, command, "🔊 Conectado al canal de voz").await
 }
 
 async fn handle_queue(
@@ -784,9 +784,9 @@ async fn handle_shuffle(
         ctx,
         command,
         if shuffled {
-            "Modo aleatorio activado (cola mezclada)"
+            "🔀 Modo aleatorio activado (cola mezclada)"
         } else {
-            "Modo aleatorio desactivado"
+            "➡️ Modo aleatorio desactivado"
         },
     )
     .await
@@ -801,9 +801,9 @@ async fn handle_loop(
     let mode = option_str(command, "mode").unwrap_or("off");
 
     let (loop_mode, message) = match mode {
-        "track" => (LoopMode::Track, "Repetir canción activado"),
-        "queue" => (LoopMode::Queue, "Repetir cola activado"),
-        _ => (LoopMode::Off, "Repetición desactivada"),
+        "track" => (LoopMode::Track, "🔂 Repetir canción activado"),
+        "queue" => (LoopMode::Queue, "🔁 Repetir cola activado"),
+        _ => (LoopMode::Off, "➡️ Repetición desactivada"),
     };
 
     bot.player.set_loop_mode_specific(guild_id, loop_mode).await?;
@@ -835,7 +835,7 @@ async fn handle_volume(
     let message = if level > 100 {
         format!("Volumen al {level}%\nPor encima del 100% puede distorsionar")
     } else if level == 0 {
-        "Audio silenciado".to_string()
+        "🔇 Audio silenciado".to_string()
     } else {
         format!("{} Volumen al {}%", volume_emoji(level as i32), level)
     };
@@ -882,7 +882,7 @@ async fn handle_restart(
         .await
         .map_err(|_| BotError::NothingPlaying)?;
 
-    edit(ctx, command, format!("Reiniciando: **{}**", current.title)).await
+    edit(ctx, command, format!("🔁 Reiniciando: **{}**", current.title)).await
 }
 
 async fn handle_seek(
@@ -892,7 +892,7 @@ async fn handle_seek(
 ) -> BotResult<()> {
     let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
     let time_str = option_str(command, "time").ok_or(BotError::Other(
-        "Indicá la posición (por ejemplo `1:30`)",
+        "❌ Indicá la posición (por ejemplo `1:30`)",
     ))?;
 
     let seconds = parse_time_string(time_str)?;
@@ -925,7 +925,7 @@ async fn handle_seek(
     edit(
         ctx,
         command,
-        format!("**{}** desde {}", track.title, format_duration(position)),
+        format!("⏩ **{}** desde {}", track.title, format_duration(position)),
     )
     .await
 }
@@ -937,7 +937,7 @@ async fn handle_add(
 ) -> BotResult<()> {
     let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
     let query = option_str(command, "query")
-        .ok_or(BotError::Other("Falta la búsqueda"))?
+        .ok_or(BotError::Other("❌ Falta la búsqueda"))?
         .to_string();
 
     defer(ctx, command).await?;
@@ -959,7 +959,7 @@ async fn handle_add(
     let title = track.title();
     bot.player.play(guild_id, track).await?;
 
-    edit(ctx, command, format!("**{title}** agregado a la cola")).await
+    edit(ctx, command, format!("➕ **{title}** agregado a la cola")).await
 }
 
 async fn handle_remove(
@@ -969,7 +969,7 @@ async fn handle_remove(
 ) -> BotResult<()> {
     let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
     let position = option_i64(command, "position")
-        .ok_or(BotError::Other("Indicá la posición a quitar"))?
+        .ok_or(BotError::Other("❌ Indicá la posición a quitar"))?
         .max(0) as usize;
 
     let removed = bot
@@ -981,7 +981,7 @@ async fn handle_remove(
     reply(
         ctx,
         command,
-        format!("Quitada de la cola: **{}**", removed.title),
+        format!("🗑️ Quitada de la cola: **{}**", removed.title),
     )
     .await
 }
@@ -993,7 +993,7 @@ async fn handle_jump(
 ) -> BotResult<()> {
     let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
     let position = option_i64(command, "position")
-        .ok_or(BotError::Other("Indicá la posición"))?
+        .ok_or(BotError::Other("❌ Indicá la posición"))?
         .max(0) as usize;
 
     defer(ctx, command).await?;
@@ -1006,7 +1006,7 @@ async fn handle_jump(
     edit(
         ctx,
         command,
-        format!("Saltando a la posición {position}: **{}**", target.title),
+        format!("🎯 Saltando a la posición {position}: **{}**", target.title),
     )
     .await
 }
@@ -1022,11 +1022,11 @@ async fn handle_clear(
     let message = match target {
         "queue" => {
             bot.player.clear_queue(guild_id).await?;
-            "Cola limpiada".to_string()
+            "🗑️ Cola limpiada".to_string()
         }
         "duplicates" => {
             let removed = bot.player.clear_duplicates(guild_id).await?;
-            format!("Eliminados {removed} duplicados")
+            format!("🗑️ Eliminados {removed} duplicados")
         }
         "user" => {
             let user = command
@@ -1038,9 +1038,9 @@ async fn handle_clear(
                 .unwrap_or(command.user.id);
 
             let removed = bot.player.clear_user_tracks(guild_id, user).await?;
-            format!("Eliminadas {removed} canciones de {}", user.mention())
+            format!("🗑️ Eliminadas {removed} canciones de {}", user.mention())
         }
-        _ => return Err(BotError::Other("Objetivo de limpieza no válido")),
+        _ => return Err(BotError::Other("❌ Objetivo de limpieza no válido")),
     };
 
     reply(ctx, command, message).await
@@ -1077,7 +1077,7 @@ async fn handle_equalizer(
             "Preset **{preset_name}** activado.\nSe oye desde la próxima canción (o usá `/restart` para aplicarlo ya)."
         )
     } else {
-        format!("Preset **{preset_name}** aplicado")
+        format!("🎛️ Preset **{preset_name}** aplicado")
     };
 
     reply(ctx, command, content).await
@@ -1090,7 +1090,7 @@ async fn handle_playlist(
 ) -> BotResult<()> {
     let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
     let url = option_str(command, "url")
-        .ok_or(BotError::Other("Falta la URL de la playlist"))?
+        .ok_or(BotError::Other("❌ Falta la URL de la playlist"))?
         .to_string();
 
     defer(ctx, command).await?;
@@ -1120,7 +1120,7 @@ async fn load_youtube_playlist(
 ) -> BotResult<()> {
     if !playlist_url.contains("list=") {
         return Err(BotError::Other(
-            "La URL no es de una playlist (debe contener `list=`)",
+            "❌ La URL no es de una playlist (debe contener `list=`)",
         ));
     }
 
@@ -1242,8 +1242,8 @@ async fn load_direct_url(
         .edit_response(
             &ctx.http,
             EditInteractionResponse::new().embed(embeds::create_success_embed(
-                "Audio agregado",
-                "URL directa agregada a la cola",
+                "🎵 Audio agregado",
+                "✅ URL directa agregada a la cola",
             )),
         )
         .await?;
@@ -1302,12 +1302,12 @@ async fn handle_metrics(
                     category.category, category.total_count
                 ));
             }
-            embeds::create_info_embed("Reporte de errores", &description)
+            embeds::create_info_embed("🔍 Reporte de errores", &description)
         }
         "performance" => {
             let metrics = bot.monitoring.get_system_metrics().await;
             embeds::create_info_embed(
-                "Métricas de rendimiento",
+                "📊 Métricas de rendimiento",
                 &format!(
                     "**Tiempo activo**: {:?}\n**Comandos totales**: {}\n**Tasa de error**: {:.2}%\n**Estado**: {:?}",
                     metrics.uptime, metrics.total_commands, metrics.error_rate, metrics.health_status
@@ -1317,7 +1317,7 @@ async fn handle_metrics(
         _ => {
             let metrics = bot.monitoring.get_system_metrics().await;
             embeds::create_info_embed(
-                "Métricas del sistema",
+                "📈 Métricas del sistema",
                 &format!(
                     "**Tiempo activo**: {:?}\n**Comandos**: {}\n**Errores**: {}\n**Avisos**: {}",
                     metrics.uptime,
@@ -1336,7 +1336,7 @@ async fn handle_metrics(
 
 /// Acepta `90`, `1:30` y `1:30:00`.
 fn parse_time_string(time_str: &str) -> BotResult<u64> {
-    let invalid = || BotError::Other("Formato de tiempo inválido. Usá `seg`, `min:seg` o `hora:min:seg`");
+    let invalid = || BotError::Other("❌ Formato de tiempo inválido. Usá `seg`, `min:seg` o `hora:min:seg`");
 
     let parts: Vec<u64> = time_str
         .split(':')

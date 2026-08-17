@@ -298,11 +298,11 @@ fn create_pagination_bar(current: usize, total: usize) -> String {
 #[allow(dead_code)]
 pub fn create_help_embed() -> CreateEmbed {
     CreateEmbed::default()
-        .title("Open Music Bot - Guía Completa")
+        .title("🎵 Open Music Bot - Guía completa")
         .color(colors::INFO_BLUE)
         .description("Bot de música para Discord, escrito en Rust")
         .field(
-            "Reproducción",
+            "▶️ Reproducción",
             "• `/play <búsqueda o URL>` - Reproduce o encola una canción\n\
             • `/search <términos>` - Busca y elige entre varios resultados\n\
             • `/playlist <url>` - Carga una playlist completa\n\
@@ -316,7 +316,7 @@ pub fn create_help_embed() -> CreateEmbed {
             false,
         )
         .field(
-            "Cola",
+            "📋 Cola",
             "• `/queue [página]` - Muestra la cola\n\
             • `/nowplaying` - Detalle de la canción actual\n\
             • `/jump <posición>` - Salta a una posición de la cola\n\
@@ -327,13 +327,13 @@ pub fn create_help_embed() -> CreateEmbed {
             false,
         )
         .field(
-            "Audio",
+            "🎛️ Audio",
             "• `/volume [0-200]` - Ajusta el volumen\n\
             • `/equalizer <preset>` - Aplica un preset de ecualización",
             false,
         )
         .field(
-            "Conexión y diagnóstico",
+            "🔌 Conexión y diagnóstico",
             "• `/join` - Entra a tu canal de voz\n\
             • `/leave` - Sale del canal de voz\n\
             • `/health` - Estado del bot\n\
@@ -341,7 +341,7 @@ pub fn create_help_embed() -> CreateEmbed {
             false,
         )
         .field(
-            "Fuentes soportadas",
+            "🌐 Fuentes soportadas",
             "• YouTube y YouTube Music, mediante yt-dlp",
             false,
         )
@@ -605,7 +605,7 @@ pub fn create_volume_embed(current_volume: f32, is_muted: bool) -> CreateEmbed {
     };
 
     CreateEmbed::default()
-        .title("Control de volumen")
+        .title("🔊 Control de volumen")
         .description(&description)
         .field("Nivel", volume_bar, false)
         .field("Porcentaje", format!("{}%", volume_percent), true)
@@ -782,7 +782,7 @@ pub fn create_playlist_completed_embed(
     );
 
     let mut embed = CreateEmbed::default()
-        .title("Playlist cargada")
+        .title("✅ Playlist cargada")
         .description(&description)
         .color(color);
 
@@ -914,7 +914,7 @@ pub fn create_selection_components(results: &[crate::sources::TrackSource]) -> V
     }
     
     let select_menu = CreateSelectMenu::new("track_selection", serenity::builder::CreateSelectMenuKind::String { options })
-        .placeholder("Elige una canción para reproducir...")
+        .placeholder("🎵 Elige una canción para reproducir...")
         .min_values(1)
         .max_values(1);
     
