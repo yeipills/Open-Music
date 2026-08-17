@@ -178,7 +178,7 @@ impl JsonStorage {
         let history_dir = data_dir.join("history");
         fs::create_dir_all(&history_dir).await?;
         
-        info!("📁 Storage inicializado en: {}", data_dir.display());
+        info!("Storage inicializado en: {}", data_dir.display());
         
         let mut storage = Self {
             data_dir,
@@ -215,7 +215,7 @@ impl JsonStorage {
                 self.save_server_config(&config).await?;
                 self.servers_cache.insert(guild_id, config.clone());
                 
-                info!("📝 Configuración por defecto creada para guild {}", guild_id);
+                info!("Configuración por defecto creada para guild {}", guild_id);
                 Ok(config)
             }
         }
@@ -232,7 +232,7 @@ impl JsonStorage {
         // Guardar en archivo
         self.save_server_config(&config).await?;
         
-        info!("💾 Configuración actualizada para guild {}", guild_id);
+        info!("Configuración actualizada para guild {}", guild_id);
         Ok(())
     }
     
@@ -368,7 +368,7 @@ impl JsonStorage {
         }
         
         if loaded_count > 0 {
-            info!("📂 Cargadas {} configuraciones de servidor", loaded_count);
+            info!("Cargadas {} configuraciones de servidor", loaded_count);
         }
         
         Ok(())
@@ -392,11 +392,11 @@ impl std::fmt::Display for StorageStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "📊 Storage Stats:\n\
-             📁 Data Directory: {}\n\
-             📝 Server Configs: {} files\n\
-             💾 Cached Configs: {} in memory\n\
-             📦 Total Size: {} bytes ({:.2} KB)",
+            " Storage Stats:\n\
+              Data Directory: {}\n\
+              Server Configs: {} files\n\
+              Cached Configs: {} in memory\n\
+              Total Size: {} bytes ({:.2} KB)",
             self.data_dir.display(),
             self.server_configs,
             self.cached_configs,
@@ -422,7 +422,7 @@ impl JsonStorage {
         };
         
         self.update_server_config(config).await?;
-        info!("📝 Configuración de ejemplo creada para guild {}", guild_id);
+        info!("Configuración de ejemplo creada para guild {}", guild_id);
         Ok(())
     }
     
@@ -444,7 +444,7 @@ impl JsonStorage {
                                 Ok(_) => {
                                     self.servers_cache.remove(&guild_id);
                                     removed_count += 1;
-                                    info!("🗑️ Configuración eliminada para guild inactiva: {}", guild_id);
+                                    info!("Configuración eliminada para guild inactiva: {}", guild_id);
                                 }
                                 Err(e) => {
                                     error!("Error eliminando configuración para guild {}: {}", guild_id, e);
@@ -712,7 +712,7 @@ impl JsonStorage {
         }
         
         if loaded_count > 0 {
-            info!("📂 Cargadas {} playlists personales", loaded_count);
+            info!("Cargadas {} playlists personales", loaded_count);
         }
         
         Ok(())

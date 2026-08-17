@@ -1,463 +1,341 @@
-# 🚨 Guía de Solución de Problemas - Open Music Bot
+# Solución de problemas
 
-## 📋 Índice de Problemas
+Referencia de síntoma, causa y solución para los problemas más comunes al instalar,
+configurar y operar el bot. Para la configuración del entorno de desarrollo (Rust,
+dependencias del sistema, Docker de desarrollo) consulta [DEVELOPMENT.md](DEVELOPMENT.md) y
+[CONTRIBUTING.md](CONTRIBUTING.md); aquí solo se documenta cómo diagnosticar y resolver fallos.
 
-1. [🔧 Problemas de Instalación](#-problemas-de-instalación)
-2. [🎵 Problemas de yt-dlp](#-problemas-de-yt-dlp)
-3. [🍪 Problemas de Cookies](#-problemas-de-cookies)
-4. [🔊 Problemas de Audio](#-problemas-de-audio)
-5. [🐳 Problemas de Docker](#-problemas-de-docker)
-6. [⚡ Problemas de Performance](#-problemas-de-performance)
-7. [📊 Herramientas de Diagnóstico](#-herramientas-de-diagnóstico)
+## Índice
+
+1. [Instalación](#instalación)
+2. [yt-dlp y YouTube](#yt-dlp-y-youtube)
+3. [Cookies](#cookies)
+4. [Audio](#audio)
+5. [Docker](#docker)
+6. [Rendimiento](#rendimiento)
+7. [Herramientas de diagnóstico](#herramientas-de-diagnóstico)
+8. [Obtener ayuda](#obtener-ayuda)
 
 ---
 
-## 🔧 Problemas de Instalación
+## Instalación
 
-### ❌ Error: `DISCORD_TOKEN not found`
+### Error: `DISCORD_TOKEN not found`
 
-**Síntomas:**
+**Síntoma:**
 ```
 Error: DISCORD_TOKEN environment variable not set
 ```
 
-**Causas posibles:**
-- Token no configurado en `.env`
-- Archivo `.env` en ubicación incorrecta
-- Variables de entorno no cargadas
+**Causa:** el archivo `.env` no existe, está en otra ubicación, o la variable no
+está definida en él.
 
-**Soluciones:**
-
-1. **Verificar archivo .env:**
+**Solución:**
 ```bash
-# Verificar que existe
+# Verificar que existe y contiene el token
 ls -la .env
+grep DISCORD_TOKEN .env
 
-# Verificar contenido
-cat .env | grep DISCORD_TOKEN
-```
-
-2. **Configurar correctamente:**
-```bash
-# Crear desde template
+# Si no existe, crear desde el template
 cp .env.example .env
-
-# Editar con tu token
 nano .env
+# DISCORD_TOKEN=tu_token_aqui   (sin comillas, sin espacios extra)
 
-# Verificar formato (sin espacios extra)
-DISCORD_TOKEN=YOUR_BOT_TOKEN_HERE
-```
-
-3. **Para Docker:**
-```bash
-# Verificar que docker-compose lee el .env
+# Para Docker, confirmar que docker-compose lo está leyendo
 docker-compose config | grep DISCORD_TOKEN
 ```
 
-### ❌ Error: `opus link error`
+### Error: `opus link error`
 
-**Síntomas:**
+**Síntoma:**
 ```
 error: linking with `cc` failed
 undefined reference to `opus_encoder_create`
 ```
 
+**Causa:** falta la librería de desarrollo de opus en el sistema.
+
 **Solución:**
 ```bash
-# Ubuntu/Debian
-sudo apt install libopus-dev pkg-config
-
-# CentOS/RHEL/Fedora
+# Fedora/RHEL
 sudo dnf install opus-devel pkgconfig
+
+# Debian/Ubuntu
+sudo apt install libopus-dev pkg-config
 
 # macOS
 brew install opus pkg-config
 
-# Limpiar y recompilar
-cargo clean
-cargo build --release
+cargo clean && cargo build --release
 ```
 
-### ❌ Error: `cmake not found`
+Guía completa de dependencias de sistema en DEVELOPMENT.md.
 
-**Síntomas:**
+### Error: `cmake not found`
+
+**Síntoma:**
 ```
 error: failed to run custom build command for `cmake`
 ```
 
 **Solución:**
 ```bash
-# Ubuntu/Debian
-sudo apt install cmake build-essential
+sudo dnf install cmake gcc gcc-c++   # Fedora/RHEL
+sudo apt install cmake build-essential   # Debian/Ubuntu
+brew install cmake   # macOS
 
-# CentOS/RHEL/Fedora
-sudo dnf install cmake gcc gcc-c++
-
-# macOS
-brew install cmake
-
-# Verificar instalación
 cmake --version
 ```
 
 ---
 
-## 🎵 Problemas de yt-dlp
+## yt-dlp y YouTube
 
-### ❌ Error: `yt-dlp not found`
+### Error: `yt-dlp not found`
 
-**Síntomas:**
+**Síntoma:**
 ```
 Error: Command 'yt-dlp' not found
 ```
 
-**Soluciones:**
+**Soluciones, en orden de preferencia:**
 
-1. **Instalación básica:**
+1. Instalación estándar:
 ```bash
-# Método recomendado
 pip3 install --upgrade yt-dlp
-
-# Verificar instalación
 yt-dlp --version
 which yt-dlp
 ```
 
-2. **Para sistemas con permisos restringidos:**
+2. Si el sistema restringe la instalación global:
 ```bash
-# Instalación en user space
 pip3 install --user --upgrade yt-dlp
-
-# Agregar al PATH
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-3. **Instalación alternativa:**
+3. Con pipx (aísla la herramienta de otros paquetes de Python):
 ```bash
-# Usando pipx (recomendado para herramientas)
-sudo apt install pipx
 pipx install yt-dlp
 pipx upgrade yt-dlp
 ```
 
-### ❌ Error: `HTTP Error 429: Too Many Requests`
+### Error: `HTTP Error 429: Too Many Requests`
 
-**Síntomas:**
+**Síntoma:**
 ```
 ERROR: [youtube] Video unavailable: HTTP Error 429
 ```
 
-**Causas:**
-- Rate limiting de YouTube
-- IP bloqueada temporalmente
-- Cookies expiradas o inválidas
+**Causa:** rate limiting de YouTube, por IP bloqueada temporalmente o por cookies
+expiradas/inválidas.
 
 **Soluciones:**
 
-1. **Actualizar cookies:**
+1. Renovar cookies (ver sección [Cookies](#cookies)).
+2. Esperar antes de reintentar:
 ```bash
-# Renovar cookies desde navegador
-# Ver sección "Problemas de Cookies"
-```
-
-2. **Esperar y reintentar:**
-```bash
-# Reiniciar bot después de 15-30 minutos
 docker-compose restart
 ```
-
-3. **Usar proxy (avanzado):**
+3. Usar un proxy si el problema persiste (avanzado):
 ```bash
-# Agregar a config/config
+# En config/config
 --proxy socks5://proxy-server:port
 ```
 
-### ❌ Error: `Video unavailable`
+### Error: `Video unavailable`
 
-**Síntomas:**
+**Síntoma:**
 ```
 ERROR: [youtube] Video unavailable
-Audio choppy or not playing
 ```
 
 **Soluciones:**
-
-1. **Verificar URL:**
 ```bash
-# Test manual
+# Confirmar que la URL es válida y accesible
 yt-dlp --print "%(title)s" "URL_DEL_VIDEO"
-```
 
-2. **Actualizar yt-dlp:**
-```bash
+# Actualizar yt-dlp: YouTube cambia su frontend con frecuencia
+# y las versiones desactualizadas dejan de poder extraer
 pip3 install --upgrade yt-dlp
 ```
 
-3. **Usar formato alternativo:**
+### Búsquedas que no responden o tardan demasiado
+
+**Síntoma:** el bot se queda "pensando" y el comando `/play` no responde.
+
+**Diagnóstico:**
 ```bash
-# Editar config/config
---format "worstaudio/worst"  # Para testing
-```
-
-### ❌ Error: `Search timeout`
-
-**Síntomas:**
-- Búsquedas que tardan más de 30 segundos
-- Bot se queda "pensando"
-- Comandos que no responden
-
-**Soluciones:**
-
-1. **Verificar optimizaciones:**
-```bash
-# Verificar configuración optimizada en config/config
 cat config/config | grep -E "(socket-timeout|retries|fragment-retries)"
+time yt-dlp --print "%(title)s" "ytsearch1:test music"
 ```
 
-2. **Reducir timeouts:**
+**Solución:** reducir los timeouts en `config/config`:
 ```bash
-# Editar config/config
 --socket-timeout 10
 --retries 1
 --fragment-retries 1
 ```
 
-3. **Test de conectividad:**
-```bash
-# Test de velocidad
-time yt-dlp --print "%(title)s" "ytsearch1:test music"
-```
-
 ---
 
-## 🍪 Problemas de Cookies
+## Cookies
 
-### ❌ Cookies inválidas o expiradas
+### Cookies inválidas o expiradas
 
-**Síntomas:**
-- Videos no se reproducen
-- Error 403 Forbidden
-- Rate limiting excesivo
+**Síntoma:** videos que no se reproducen, error 403 Forbidden, o rate limiting
+excesivo aun con pocas peticiones.
 
 **Diagnóstico:**
 ```bash
-# Verificar cookies
 ls -la config/cookies.txt
-
-# Verificar formato
 head -5 config/cookies.txt
 ```
 
-**Soluciones:**
+**Solución: extraer cookies frescas**
 
-1. **Extraer cookies frescas:**
+Método Chrome:
+1. Instalar una extensión de exportación tipo "cookies.txt".
+2. Ir a youtube.com y loguearse con la cuenta que se usará.
+3. Exportar las cookies del dominio.
+4. Copiar el archivo a `config/cookies.txt`.
 
-**Método Chrome:**
+Método Firefox:
+1. Instalar una extensión como "Export Cookies".
+2. Ir a youtube.com, loguearse.
+3. Exportar en formato Netscape.
+4. Copiar el archivo a `config/cookies.txt`.
+
+**Validar el formato:** el archivo debe estar en formato Netscape y empezar así:
 ```bash
-# 1. Instalar extensión "cookies.txt"
-# 2. Ir a youtube.com y loguearse
-# 3. Exportar cookies
-# 4. Copiar a config/cookies.txt
-```
-
-**Método Firefox:**
-```bash
-# 1. Instalar "Export Cookies"
-# 2. Ir a youtube.com
-# 3. Exportar en formato Netscape
-# 4. Copiar a config/cookies.txt
-```
-
-2. **Validar formato de cookies:**
-```bash
-# Verificar que empiecen con:
 head -2 config/cookies.txt
-# Debe mostrar:
 # # Netscape HTTP Cookie File
 # # This file is generated by yt-dlp. Do not edit.
 ```
 
-3. **Test de cookies:**
+**Probar que funcionan:**
 ```bash
-# Test con cookies
 yt-dlp --cookies config/cookies.txt --print "%(title)s" "ytsearch1:test"
-
-# Test sin cookies
-yt-dlp --print "%(title)s" "ytsearch1:test"
 ```
 
-### ❌ Ubicación incorrecta de cookies
+### Ubicación incorrecta de cookies
 
-**Síntomas:**
+**Síntoma:**
 ```
 WARNING: No se encontraron cookies
 ```
 
-**Verificación:**
+**Diagnóstico:**
 ```bash
-# Verificar ubicaciones buscadas
 find . -name "cookies.txt" 2>/dev/null
-
-# Verificar permisos
 ls -la config/cookies.txt
 ```
 
 **Solución:**
 ```bash
-# Crear directorio si no existe
 mkdir -p config
-
-# Copiar cookies a ubicación correcta
 cp cookies.txt config/cookies.txt
-
-# Verificar permisos
 chmod 644 config/cookies.txt
 ```
 
 ---
 
-## 🔊 Problemas de Audio
+## Audio
 
-### ❌ Audio entrecortado (choppy)
+### Audio entrecortado (choppy)
 
-**Síntomas:**
-- Audio que se corta
-- Reproducción irregular
-- Lag en la reproducción
+**Síntoma:** audio que se corta, reproducción irregular, lag perceptible.
 
-**Causas:**
-- CPU insuficiente
-- Memoria insuficiente
-- Problemas de red
-- Configuración de bitrate muy alta
-
-**Soluciones:**
-
-1. **Verificar recursos:**
-```bash
-# Monitorear CPU y memoria
-top -p $(pgrep open-music)
-
-# Para Docker
-docker stats open-music-bot
-```
-
-2. **Reducir calidad de audio:**
-```bash
-# Editar .env
-OPUS_BITRATE=64000    # Reducir de 128000
-FRAME_SIZE=480        # Reducir de 960
-```
-
-3. **Optimizar configuración:**
-```bash
-# Editar config/config
---http-chunk-size 2M  # Reducir de 5M
---concurrent-fragments 1  # Reducir de 2
-```
-
-### ❌ Sin audio / Bot mudo
-
-**Síntomas:**
-- Bot se conecta pero no reproduce
-- Comandos funcionan pero sin sonido
-- "Now playing" muestra pero no se escucha
+**Causa:** CPU o memoria insuficiente, red inestable, o bitrate configurado
+demasiado alto para el enlace disponible.
 
 **Diagnóstico:**
 ```bash
-# Verificar conexión de voz
-# En Discord, verificar que el bot esté en el canal
+top -p $(pgrep open-music)
+docker stats open-music-bot   # si corre en Docker
 ```
 
 **Soluciones:**
 
-1. **Verificar permisos Discord:**
-- ✅ Connect (Voice)
-- ✅ Speak (Voice)
-- ✅ Use Voice Activity
-
-2. **Reiniciar conexión de audio:**
+1. Reducir la calidad de audio en `.env`:
 ```bash
-# Comandos en Discord
+OPUS_BITRATE=64000    # antes 128000
+FRAME_SIZE=480        # antes 960
+```
+
+2. Reducir el tamaño de los fragmentos descargados en `config/config`:
+```bash
+--http-chunk-size 2M       # antes 5M
+--concurrent-fragments 1   # antes 2
+```
+
+### Sin audio / bot mudo
+
+**Síntoma:** el bot se conecta al canal, "Now playing" se muestra, pero no se
+escucha nada.
+
+**Soluciones:**
+
+1. Verificar permisos del bot en el canal de voz de Discord: Connect, Speak, Use
+   Voice Activity.
+
+2. Reiniciar la conexión de audio:
+```
 /leave
 /join
 /play test music
 ```
 
-3. **Verificar logs de audio:**
+3. Revisar los logs de songbird:
 ```bash
-# Logs específicos de songbird
 RUST_LOG=songbird=debug docker-compose logs -f
 ```
 
-### ❌ Audio con latencia alta
+### Audio con latencia alta
 
-**Síntomas:**
-- Delay entre comando y reproducción
-- Audio desfasado
+**Síntoma:** delay perceptible entre el comando y el inicio de la reproducción,
+o audio desfasado.
 
-**Soluciones:**
+**Solución:** ajustar bitrate y frame size en `.env`:
 ```bash
-# Optimizar buffer de audio
-DEFAULT_VOLUME=0.3    # Volumen más bajo
-OPUS_BITRATE=96000    # Bitrate moderado
-
-# Reducir frame size
+OPUS_BITRATE=96000    # bitrate moderado
 FRAME_SIZE=480
 ```
 
 ---
 
-## 🐳 Problemas de Docker
+## Docker
 
-### ❌ Error: `docker-compose not found`
+### Error: `docker-compose: command not found`
 
-**Síntomas:**
+**Causa:** Docker Compose v2 se invoca como subcomando de `docker`, no como
+binario independiente.
+
+**Solución:**
 ```bash
-bash: docker-compose: command not found
-```
-
-**Soluciones:**
-
-1. **Docker Compose v2 (recomendado):**
-```bash
-# Usar comando nuevo
 docker compose up -d
 
-# Crear alias si es necesario
+# Opcional: alias para mantener el comando antiguo
 echo 'alias docker-compose="docker compose"' >> ~/.bashrc
 ```
 
-2. **Instalar Docker Compose v1:**
-```bash
-sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
-```
+### Error: `Permission denied` al hablar con el daemon de Docker
 
-### ❌ Error: `Permission denied` (Docker)
-
-**Síntomas:**
+**Síntoma:**
 ```
 permission denied while trying to connect to Docker daemon
 ```
 
-**Soluciones:**
+**Solución:**
 ```bash
-# Agregar usuario al grupo docker
 sudo usermod -aG docker $USER
-
-# Logout y login, o usar:
-newgrp docker
-
-# Verificar
+newgrp docker   # o cerrar sesión y volver a entrar
 docker --version
 ```
 
-### ❌ Contenedor se reinicia constantemente
+### El contenedor se reinicia constantemente
 
-**Síntomas:**
+**Síntoma:**
 ```bash
 docker-compose ps
 # Estado: Restarting
@@ -465,204 +343,185 @@ docker-compose ps
 
 **Diagnóstico:**
 ```bash
-# Ver logs
-docker-compose logs open-music
-
-# Ver últimos errores
 docker-compose logs --tail=20 open-music
 ```
 
-**Soluciones comunes:**
-1. Token inválido
-2. Memoria insuficiente
-3. Variables de entorno faltantes
+**Causas más frecuentes:** token de Discord inválido, memoria insuficiente para
+el proceso, o variables de entorno requeridas sin definir.
 
-### ❌ Build timeout
+### Timeout durante el build
 
-**Síntomas:**
+**Síntoma:**
 ```
 ERROR: Build failed with timeout
 ```
 
-**Soluciones:**
+**Solución:**
 ```bash
-# Aumentar timeout
 DOCKER_BUILDKIT=1 docker-compose build --no-cache
 
-# Build manual con más memoria
+# Si el problema es memoria disponible durante la compilación
 docker build --memory=4g --cpu-shares=2048 .
-
-# Usar imagen pre-compilada (si disponible)
-docker pull tu-usuario/open-music-bot:latest
 ```
 
 ---
 
-## ⚡ Problemas de Performance
+## Rendimiento
 
-### ❌ Uso excesivo de CPU
+### Uso excesivo de CPU
 
-**Síntomas:**
+**Síntoma:**
 ```bash
 top
-# open-music usando >50% CPU constantemente
+# open-music usando >50% CPU de forma sostenida
 ```
 
 **Diagnóstico:**
 ```bash
-# Profile de CPU
 perf record -g -p $(pgrep open-music)
 perf report
 
-# Para Docker
-docker stats open-music-bot
+docker stats open-music-bot   # si corre en Docker
 ```
 
 **Soluciones:**
 
-1. **Optimizar configuración:**
+1. Limitar concurrencia y cache en `.env`:
 ```bash
-# .env optimizations
-WORKER_THREADS=2          # Limitar threads
-CACHE_SIZE=50             # Reducir cache
-AUDIO_CACHE_SIZE=25       # Reducir audio cache
+WORKER_THREADS=2
+CACHE_SIZE=50
+AUDIO_CACHE_SIZE=25
 ```
 
-2. **Reducir calidad:**
+2. Reducir la carga de procesamiento de audio:
 ```bash
-OPUS_BITRATE=64000        # Menor bitrate
-DEFAULT_VOLUME=0.3        # Volumen menor
+OPUS_BITRATE=64000
+DEFAULT_VOLUME=0.3
 ```
 
-### ❌ Uso excesivo de Memoria
+### Uso excesivo de memoria
 
-**Síntomas:**
-- RAM >500MB
-- Sistema lento
-- OOM kills
+**Síntoma:** RAM del proceso creciendo por encima de lo esperado, sistema lento,
+OOM kills en el host.
 
-**Soluciones:**
+**Solución:**
 ```bash
-# Limitar memoria Docker
-# En docker-compose.yml
+# En docker-compose.yml, acotar el límite del contenedor
 deploy:
   resources:
     limits:
       memory: 256M
 
-# Optimizar cache
+# Reducir tamaños de cache y cola en .env
 CACHE_SIZE=25
 MAX_QUEUE_SIZE=100
 ```
 
-### ❌ Búsquedas muy lentas
+### Búsquedas lentas
 
-**Síntomas:**
-- Búsquedas >20 segundos
-- Timeouts frecuentes
+**Síntoma:** las búsquedas tardan mucho más de lo habitual o los comandos hacen
+timeout con frecuencia.
 
-**Optimizaciones aplicadas en este bot:**
+**Configuración de yt-dlp usada por este bot** (`config/config`):
 ```bash
-# config/config optimizado
---socket-timeout 15       # Reducido de 30
---retries 2              # Reducido de 5
---fragment-retries 1     # Reducido de 5
---concurrent-fragments 2 # Parallelismo
---http-chunk-size 5M     # Chunks optimizados
+--socket-timeout 15
+--retries 2
+--fragment-retries 1
+--concurrent-fragments 2
+--http-chunk-size 5M
 ```
 
-**Verificación:**
+**Verificación:** comparar el tiempo de una búsqueda de referencia antes y
+después de ajustar estos valores.
 ```bash
-# Test de velocidad
-time yt-dlp --print "%(title)s" "ytsearch1:milo j"
-# Debería ser <10 segundos
+time yt-dlp --print "%(title)s" "ytsearch1:test music"
 ```
 
 ---
 
-## 📊 Herramientas de Diagnóstico
+## Herramientas de diagnóstico
 
-### 🔍 Script de Diagnóstico Completo
+### Script de diagnóstico completo
 
 ```bash
 cat > ./scripts/diagnose.sh << 'EOF'
 #!/bin/bash
 set -e
 
-echo "🔍 === DIAGNÓSTICO COMPLETO ===" 
+echo "=== DIAGNOSTICO COMPLETO ==="
 echo "Timestamp: $(date)"
 echo ""
 
-echo "📋 === SISTEMA ==="
+echo "=== SISTEMA ==="
 echo "OS: $(uname -a)"
 echo "CPU: $(nproc) cores"
 echo "RAM: $(free -h | grep Mem | awk '{print $2}')"
 echo "Disk: $(df -h . | tail -1 | awk '{print $4}') free"
 echo ""
 
-echo "🔧 === DEPENDENCIAS ==="
+echo "=== DEPENDENCIAS ==="
 echo -n "Rust: "
-rustc --version 2>/dev/null || echo "❌ No instalado"
+rustc --version 2>/dev/null || echo "No instalado"
 echo -n "Docker: "
-docker --version 2>/dev/null || echo "❌ No instalado"
+docker --version 2>/dev/null || echo "No instalado"
 echo -n "yt-dlp: "
-yt-dlp --version 2>/dev/null || echo "❌ No instalado"
+yt-dlp --version 2>/dev/null || echo "No instalado"
 echo -n "ffmpeg: "
-ffmpeg -version 2>/dev/null | head -1 || echo "❌ No instalado"
+ffmpeg -version 2>/dev/null | head -1 || echo "No instalado"
 echo ""
 
-echo "📁 === ARCHIVOS ==="
+echo "=== ARCHIVOS ==="
 echo "Directorio actual: $(pwd)"
-echo ".env: $([ -f .env ] && echo "✅ Existe" || echo "❌ Faltante")"
-echo "Dockerfile: $([ -f Dockerfile ] && echo "✅ Existe" || echo "❌ Faltante")"
-echo "docker-compose.yml: $([ -f docker-compose.yml ] && echo "✅ Existe" || echo "❌ Faltante")"
-echo "config/cookies.txt: $([ -f config/cookies.txt ] && echo "✅ Existe ($(wc -l < config/cookies.txt) líneas)" || echo "❌ Faltante")"
+echo ".env: $([ -f .env ] && echo "Existe" || echo "Faltante")"
+echo "Dockerfile: $([ -f Dockerfile ] && echo "Existe" || echo "Faltante")"
+echo "docker-compose.yml: $([ -f docker-compose.yml ] && echo "Existe" || echo "Faltante")"
+echo "config/cookies.txt: $([ -f config/cookies.txt ] && echo "Existe ($(wc -l < config/cookies.txt) lineas)" || echo "Faltante")"
 echo ""
 
-echo "🌐 === CONECTIVIDAD ==="
-timeout 5 curl -s https://discord.com > /dev/null && echo "Discord: ✅ Accesible" || echo "Discord: ❌ No accesible"
-timeout 5 curl -s https://youtube.com > /dev/null && echo "YouTube: ✅ Accesible" || echo "YouTube: ❌ No accesible"
+echo "=== CONECTIVIDAD ==="
+timeout 5 curl -s https://discord.com > /dev/null && echo "Discord: Accesible" || echo "Discord: No accesible"
+timeout 5 curl -s https://youtube.com > /dev/null && echo "YouTube: Accesible" || echo "YouTube: No accesible"
 echo ""
 
-echo "🐳 === DOCKER ==="
+echo "=== DOCKER ==="
 if docker ps > /dev/null 2>&1; then
-    echo "Docker daemon: ✅ Ejecutando"
+    echo "Docker daemon: Ejecutando"
     if docker-compose ps 2>/dev/null | grep -q open-music; then
-        echo "Bot container: ✅ Ejecutando"
+        echo "Bot container: Ejecutando"
         docker stats open-music-bot --no-stream | tail -n +2
     else
-        echo "Bot container: ❌ No ejecutando"
+        echo "Bot container: No ejecutando"
     fi
 else
-    echo "Docker daemon: ❌ No accesible"
+    echo "Docker daemon: No accesible"
 fi
 echo ""
 
-echo "🎵 === YT-DLP TEST ==="
+echo "=== YT-DLP TEST ==="
 if command -v yt-dlp > /dev/null; then
     echo "Testing yt-dlp search..."
-    timeout 15 yt-dlp --print "%(title)s" "ytsearch1:test music" 2>/dev/null && echo "yt-dlp: ✅ Funcional" || echo "yt-dlp: ❌ Con problemas"
+    timeout 15 yt-dlp --print "%(title)s" "ytsearch1:test music" 2>/dev/null && echo "yt-dlp: Funcional" || echo "yt-dlp: Con problemas"
 else
-    echo "yt-dlp: ❌ No disponible"
+    echo "yt-dlp: No disponible"
 fi
 echo ""
 
-echo "📊 === LOGS RECIENTES ==="
+echo "=== LOGS RECIENTES ==="
 if docker-compose ps 2>/dev/null | grep -q open-music; then
-    echo "Últimas 5 líneas de logs:"
+    echo "Ultimas 5 lineas de logs:"
     docker-compose logs --tail=5 open-music 2>/dev/null || echo "No se pudieron obtener logs"
 else
-    echo "Bot no está ejecutando"
+    echo "Bot no esta ejecutando"
 fi
 echo ""
 
-echo "✅ === DIAGNÓSTICO COMPLETADO ==="
+echo "=== DIAGNOSTICO COMPLETADO ==="
 EOF
 
 chmod +x ./scripts/diagnose.sh
 ```
 
-### 📈 Monitoring Continuo
+### Monitoreo continuo
 
 ```bash
 cat > ./scripts/monitor.sh << 'EOF'
@@ -670,11 +529,11 @@ cat > ./scripts/monitor.sh << 'EOF'
 
 while true; do
     clear
-    echo "🎵 Open Music Bot - Monitor $(date)"
+    echo "Open Music Bot - Monitor $(date)"
     echo "=========================================="
-    
+
     if docker ps | grep -q open-music-bot; then
-        echo "Status: ✅ RUNNING"
+        echo "Status: RUNNING"
         echo ""
         echo "Resources:"
         docker stats open-music-bot --no-stream | tail -n +2
@@ -682,12 +541,12 @@ while true; do
         echo "Recent logs:"
         docker logs --tail 3 open-music-bot 2>/dev/null
     else
-        echo "Status: ❌ NOT RUNNING"
+        echo "Status: NOT RUNNING"
         echo ""
         echo "Last logs:"
         docker logs --tail 5 open-music-bot 2>/dev/null || echo "No logs available"
     fi
-    
+
     echo ""
     echo "=========================================="
     echo "Press Ctrl+C to exit"
@@ -698,7 +557,7 @@ EOF
 chmod +x ./scripts/monitor.sh
 ```
 
-### 🚨 Auto-recovery Script
+### Script de recuperación automática
 
 ```bash
 cat > ./scripts/auto-recovery.sh << 'EOF'
@@ -713,36 +572,35 @@ log_msg() {
 
 while true; do
     if ! docker ps | grep -q open-music-bot; then
-        log_msg "🚨 Bot not running, attempting restart..."
-        
-        # Intentar restart
+        log_msg "Bot not running, attempting restart..."
+
         docker-compose restart > /dev/null 2>&1
         sleep 30
-        
+
         if docker ps | grep -q open-music-bot; then
-            log_msg "✅ Bot restarted successfully"
+            log_msg "Bot restarted successfully"
         else
-            log_msg "❌ Restart failed, rebuilding..."
+            log_msg "Restart failed, rebuilding..."
             docker-compose down > /dev/null 2>&1
             docker-compose up -d --build > /dev/null 2>&1
             sleep 60
-            
+
             if docker ps | grep -q open-music-bot; then
-                log_msg "✅ Bot rebuilt and started"
+                log_msg "Bot rebuilt and started"
             else
-                log_msg "💀 Critical failure, manual intervention required"
-                # Enviar notificación (webhook, email, etc.)
+                log_msg "Critical failure, manual intervention required"
+                # Enviar notificacion (webhook, email, etc.)
             fi
         fi
     else
-        # Bot running, check health
+        # Bot corriendo, verificar salud
         if docker logs --tail 10 open-music-bot 2>/dev/null | grep -q "ERROR"; then
-            log_msg "⚠️  Errors detected in logs, restarting preventively..."
+            log_msg "Errors detected in logs, restarting preventively..."
             docker-compose restart > /dev/null 2>&1
             sleep 30
         fi
     fi
-    
+
     sleep 60
 done
 EOF
@@ -750,31 +608,27 @@ EOF
 chmod +x ./scripts/auto-recovery.sh
 ```
 
-### 📞 Obtener Ayuda
+---
 
-Si después de seguir esta guía aún tienes problemas:
+## Obtener ayuda
 
-1. **📋 Ejecutar diagnóstico:**
+Si después de seguir esta guía el problema persiste:
+
+1. **Ejecutar el diagnóstico:**
 ```bash
 ./scripts/diagnose.sh > diagnostico.txt
 ```
 
-2. **📝 Recopilar información:**
-- Output del diagnóstico
-- Logs completos del bot
-- Pasos exactos para reproducir el problema
-- Configuración (sin tokens sensibles)
+2. **Recopilar información:**
+   - Salida del diagnóstico.
+   - Logs completos del bot.
+   - Pasos exactos para reproducir el problema.
+   - Configuración relevante (sin tokens ni credenciales).
 
-3. **🐛 Crear issue en GitHub:**
-- Incluir toda la información recopilada
-- Usar labels apropiados (bug, help wanted, etc.)
-- Seguir el template de issue
+3. **Crear un issue en GitHub:**
+   - Incluir toda la información recopilada.
+   - Usar las etiquetas apropiadas (bug, help wanted, etc.).
+   - Seguir el template de issue del repositorio.
 
-4. **💬 Soporte en vivo:**
-- Servidor Discord del proyecto
-- Discusiones en GitHub
-- Stack Overflow con tags: rust, discord, yt-dlp
-
----
-
-**🎵 ¡La mayoría de problemas se resuelven con cookies frescas y dependencias actualizadas!**
+4. **Canales de discusión:**
+   - Discusiones en GitHub del proyecto.

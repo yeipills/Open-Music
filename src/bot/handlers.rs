@@ -1,6 +1,27 @@
-use anyhow::Result;
+//! Despacho de interacciones.
+//!
+//! ## Cómo se valida un comando
+//!
+//! Antes cada handler comprobaba a mano lo que se le ocurría: uno miraba si
+//! había conexión, otro no, otro respondía "no hay nada sonando" cuando el
+//! problema real era que el usuario estaba en otro canal. Ahora hay **una sola
+//! puerta**, [`run_command`], que aplica en orden:
+//!
+//! 1. límite de frecuencia,
+//! 2. rol de DJ si el comando lo exige,
+//! 3. limpieza de una conexión que Discord ya cerró,
+//! 4. la tabla de requisitos de voz según el comando ([`check_voice_connections`]),
+//! 5. y recién entonces ejecuta.
+//!
+//! Cualquier error sube como [`BotError`] y se responde en un único sitio
+//! ([`dispatch_command`]), así que es imposible dejar una interacción sin
+//! contestar.
+
 use serenity::{
-    builder::{CreateInteractionResponse, CreateInteractionResponseMessage},
+    builder::{
+        CreateEmbed, CreateInteractionResponse, CreateInteractionResponseMessage,
+        EditInteractionResponse,
+    },
     model::{
         application::{CommandInteraction, ComponentInteraction},
         id::{ChannelId, GuildId, UserId},
@@ -9,59 +30,63 @@ use serenity::{
 };
 use std::collections::HashMap;
 use std::sync::LazyLock;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
 use parking_lot::Mutex;
+use serenity::prelude::Mentionable;
 use tokio::io::AsyncBufReadExt;
 use tracing::{info, warn};
 
 use crate::{
-    bot::OpenMusicBot,
-    sources::{MusicSource, TrackSource, SourceType, YtDlpOptimizedClient},
+    audio::queue::LoopMode,
+    bot::{
+        connection::{check_voice_connections, get_voice_channel_for_user, Connection},
+        OpenMusicBot,
+    },
+    errors::{verify, BotError, BotResult},
+    sources::{MusicSource, SourceType, TrackSource, YtDlpOptimizedClient},
     ui::{buttons, embeds},
 };
 
 // ===== RATE LIMITING =====
 
-/// Rate limiter para prevenir spam de comandos
-static RATE_LIMITER: LazyLock<Mutex<HashMap<(GuildId, UserId), (Instant, u32)>>> = 
+static RATE_LIMITER: LazyLock<Mutex<HashMap<(GuildId, UserId), (Instant, u32)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 const RATE_LIMIT_WINDOW_SECS: u64 = 10;
 const RATE_LIMIT_MAX_COMMANDS: u32 = 5;
 
-/// Verifica si el usuario está rate limited
 fn check_rate_limit(guild_id: GuildId, user_id: UserId) -> bool {
     let mut limiter = RATE_LIMITER.lock();
     let key = (guild_id, user_id);
     let now = Instant::now();
-    
-    if let Some((last_time, count)) = limiter.get_mut(&key) {
-        if now.duration_since(*last_time).as_secs() > RATE_LIMIT_WINDOW_SECS {
-            // Ventana expirada, reiniciar
-            *last_time = now;
-            *count = 1;
-            false
-        } else if *count >= RATE_LIMIT_MAX_COMMANDS {
-            // Rate limited
-            true
-        } else {
-            *count += 1;
+
+    match limiter.get_mut(&key) {
+        Some((last_time, count)) => {
+            if now.duration_since(*last_time).as_secs() > RATE_LIMIT_WINDOW_SECS {
+                *last_time = now;
+                *count = 1;
+                false
+            } else if *count >= RATE_LIMIT_MAX_COMMANDS {
+                true
+            } else {
+                *count += 1;
+                false
+            }
+        }
+        None => {
+            limiter.insert(key, (now, 1));
             false
         }
-    } else {
-        limiter.insert(key, (now, 1));
-        false
     }
 }
 
-// ===== DJ ROLE VALIDATION =====
+// ===== PERMISOS =====
 
-/// Comandos que requieren rol de DJ
 const DJ_REQUIRED_COMMANDS: &[&str] = &[
-    "stop", "clear", "skip", "remove", "jump", "volume", "equalizer"
+    "stop", "clear", "skip", "remove", "jump", "volume", "equalizer",
 ];
 
-/// Verifica si el usuario tiene permisos de DJ para el comando
 async fn has_dj_permission(
     ctx: &Context,
     guild_id: GuildId,
@@ -69,167 +94,276 @@ async fn has_dj_permission(
     command_name: &str,
     bot: &OpenMusicBot,
 ) -> bool {
-    // Si el comando no requiere DJ, permitir
     if !DJ_REQUIRED_COMMANDS.contains(&command_name) {
         return true;
     }
-    
-    // Obtener configuración del servidor
+
     let dj_role_id = {
         let storage = bot.storage.lock().await;
         storage.get_dj_role(guild_id.get())
     };
-    
-    // Si no hay rol de DJ configurado, permitir todo
-    let dj_role = match dj_role_id {
-        Some(id) => serenity::model::id::RoleId::from(id),
-        None => return true,
+
+    let Some(dj_role) = dj_role_id.map(serenity::model::id::RoleId::from) else {
+        return true; // sin rol configurado, manda cualquiera
     };
-    
-    // Verificar si el usuario tiene el rol de DJ
-    if let Ok(member) = guild_id.member(&ctx.http, user_id).await {
-        if member.roles.contains(&dj_role) {
-            return true;
-        }
-        
-        // También verificar permisos de administrador
-        if let Some(guild) = ctx.cache.guild(guild_id) {
-            let permissions = guild.member_permissions(&member);
-            if permissions.administrator() {
-                return true;
-            }
-        }
+
+    let Ok(member) = guild_id.member(&ctx.http, user_id).await else {
+        return false;
+    };
+    if member.roles.contains(&dj_role) {
+        return true;
     }
-    
-    false
+
+    ctx.cache
+        .guild(guild_id)
+        .map(|guild| guild.member_permissions(&member).administrator())
+        .unwrap_or(false)
 }
 
-/// Maneja comandos slash
-pub async fn handle_command(
+/// Comandos que exigen que el bot y quien invoca compartan canal de voz.
+const NEEDS_SHARED_CHANNEL: &[&str] = &[
+    "pause", "resume", "skip", "stop", "leave", "clear", "shuffle", "loop", "volume", "equalizer",
+    "remove", "jump", "previous", "restart", "seek",
+];
+/// Comandos que conectan al bot al canal de quien invoca.
+const NEEDS_AUTHOR_IN_VOICE: &[&str] = &["play", "playlist", "join", "add", "search"];
+/// Comandos de sólo lectura del estado de reproducción.
+const NEEDS_ANY_CONNECTION: &[&str] = &["nowplaying", "queue"];
+
+// ===== DESPACHO =====
+
+/// Punto de entrada de los comandos slash: ejecuta y, si algo falla, responde.
+pub async fn dispatch_command(ctx: &Context, mut command: CommandInteraction, bot: &OpenMusicBot) {
+    let name = command.data.name.clone();
+
+    if let Err(err) = run_command(ctx, &mut command, bot).await {
+        warn!("/{} falló: {}", name, err);
+        respond_text(ctx, &command, &format!("{err}"), true).await;
+    }
+}
+
+async fn run_command(
     ctx: &Context,
-    command: CommandInteraction,
+    command: &mut CommandInteraction,
     bot: &OpenMusicBot,
-) -> Result<()> {
-    let guild_id = command
-        .guild_id
-        .ok_or_else(|| anyhow::anyhow!("Comando usado fuera de un servidor"))?;
-
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
     let user_id = command.user.id;
-    let command_name = command.data.name.as_str();
+    let command_name = command.data.name.clone();
 
-    // ===== RATE LIMITING CHECK =====
     if check_rate_limit(guild_id, user_id) {
-        command
-            .create_response(
-                &ctx.http,
-                CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content("⏳ Estás enviando comandos muy rápido. Por favor espera unos segundos.")
-                        .ephemeral(true),
-                ),
-            )
-            .await?;
-        return Ok(());
+        return Err(BotError::RateLimited);
     }
 
-    // ===== DJ ROLE CHECK =====
-    if !has_dj_permission(ctx, guild_id, user_id, command_name, bot).await {
-        command
-            .create_response(
-                &ctx.http,
-                CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content("🎧 Este comando requiere el rol de DJ")
-                        .ephemeral(true),
-                ),
-            )
-            .await?;
-        return Ok(());
+    if !has_dj_permission(ctx, guild_id, user_id, &command_name, bot).await {
+        return Err(BotError::DjRequired);
     }
 
     info!(
-        "📝 Comando /{} usado por {} en guild {}",
+        "/{} usado por {} en guild {}",
         command_name, command.user.name, guild_id
     );
 
-    match command_name {
-        "play" => handle_play(ctx, command, bot).await?,
-        "pause" => handle_pause(ctx, command, bot).await?,
-        "resume" => handle_resume(ctx, command, bot).await?,
-        "skip" => handle_skip(ctx, command, bot).await?,
-        "stop" => handle_stop(ctx, command, bot).await?,
-        "leave" => handle_leave(ctx, command, bot).await?,
-        "nowplaying" => handle_nowplaying(ctx, command, bot).await?,
-        "volume" => handle_volume(ctx, command, bot).await?,
-        "queue" => handle_queue(ctx, command, bot).await?,
-        "search" => super::search::handle_search_command(ctx, command, bot).await?,
-        "shuffle" => handle_shuffle(ctx, command, bot).await?,
-        "loop" => handle_loop(ctx, command, bot).await?,
-        "join" => handle_join(ctx, command, bot).await?,
-        "equalizer" => handle_equalizer(ctx, command, bot).await?,
-        "clear" => handle_clear(ctx, command, bot).await?,
-        "playlist" => handle_playlist(ctx, command, bot).await?,
-        "previous" => handle_previous(ctx, command, bot).await?,
-        "restart" => handle_restart(ctx, command, bot).await?,
-        "seek" => handle_seek(ctx, command, bot).await?,
-        "add" => handle_add(ctx, command, bot).await?,
-        "remove" => handle_remove(ctx, command, bot).await?,
-        "jump" => handle_jump(ctx, command, bot).await?,
-        "help" => handle_help(ctx, command, bot).await?,
-        "health" => handle_health(ctx, command, bot).await?,
-        "metrics" => handle_metrics(ctx, command, bot).await?,
-        _ => {
-            command
-                .create_response(
-                    &ctx.http,
-                    CreateInteractionResponse::Message(
-                        CreateInteractionResponseMessage::new()
-                            .content("❌ Comando no reconocido")
-                            .ephemeral(true),
-                    ),
-                )
-                .await?;
+    // Si Discord ya cerró la conexión por su cuenta, el `Call` que queda es un
+    // fantasma. Ojo: `Call::leave()` NO lo saca del manager, así que
+    // `manager.get()` seguiría devolviéndolo y el bot se creería conectado.
+    // Hay que usar `manager.remove()`, que además de cerrar borra la entrada.
+    if let Some(call) = bot.player.call(guild_id) {
+        let is_ghost = call.lock().await.current_connection().is_none();
+        if is_ghost {
+            bot.player.manager().remove(guild_id).await.ok();
+            bot.player.forget_guild(guild_id);
         }
+    }
+
+    check_voice_requirements(ctx, command, guild_id, &command_name)?;
+
+    match command_name.as_str() {
+        "play" => handle_play(ctx, command, bot).await,
+        "pause" => handle_pause(ctx, command, bot).await,
+        "resume" => handle_resume(ctx, command, bot).await,
+        "skip" => handle_skip(ctx, command, bot).await,
+        "stop" => handle_stop(ctx, command, bot).await,
+        "leave" => handle_leave(ctx, command, bot).await,
+        "nowplaying" => handle_nowplaying(ctx, command, bot).await,
+        "volume" => handle_volume(ctx, command, bot).await,
+        "queue" => handle_queue(ctx, command, bot).await,
+        "search" => super::search::handle_search_command(ctx, command.clone(), bot)
+            .await
+            .map_err(BotError::from),
+        "shuffle" => handle_shuffle(ctx, command, bot).await,
+        "loop" => handle_loop(ctx, command, bot).await,
+        "join" => handle_join(ctx, command, bot).await,
+        "equalizer" => handle_equalizer(ctx, command, bot).await,
+        "clear" => handle_clear(ctx, command, bot).await,
+        "playlist" => handle_playlist(ctx, command, bot).await,
+        "previous" => handle_previous(ctx, command, bot).await,
+        "restart" => handle_restart(ctx, command, bot).await,
+        "seek" => handle_seek(ctx, command, bot).await,
+        "add" => handle_add(ctx, command, bot).await,
+        "remove" => handle_remove(ctx, command, bot).await,
+        "jump" => handle_jump(ctx, command, bot).await,
+        "help" => handle_help(ctx, command).await,
+        "health" => handle_health(ctx, command, bot).await,
+        "metrics" => handle_metrics(ctx, command, bot).await,
+        _ => Err(BotError::Other("Comando no reconocido")),
+    }
+}
+
+/// Tabla de requisitos de voz por comando.
+///
+/// Traduce la situación real (`Connection`) al error concreto, para que el
+/// usuario sepa qué le falta: unirse a un canal, o unirse **al mismo** canal.
+fn check_voice_requirements(
+    ctx: &Context,
+    command: &CommandInteraction,
+    guild_id: GuildId,
+    command_name: &str,
+) -> BotResult<()> {
+    let guild = ctx
+        .cache
+        .guild(guild_id)
+        .ok_or(BotError::Other("No encuentro este servidor en caché"))?
+        .clone();
+
+    let user_id = command.user.id;
+    let bot_id = ctx.cache.current_user().id;
+    let state = check_voice_connections(&guild, &user_id, &bot_id);
+
+    if NEEDS_SHARED_CHANNEL.contains(&command_name) {
+        return match state {
+            Connection::Mutual(..) => Ok(()),
+            Connection::User(_) | Connection::Neither => Err(BotError::NotConnected),
+            Connection::Bot(bot_channel) => {
+                Err(BotError::AuthorDisconnected(bot_channel.mention()))
+            }
+            Connection::Separate(..) => Err(BotError::WrongVoiceChannel),
+        };
+    }
+
+    if NEEDS_AUTHOR_IN_VOICE.contains(&command_name) {
+        return match state {
+            Connection::User(_) | Connection::Mutual(..) => Ok(()),
+            Connection::Bot(_) | Connection::Neither => Err(BotError::AuthorNotFound),
+            Connection::Separate(bot_channel, _) => {
+                Err(BotError::AlreadyConnected(bot_channel.mention()))
+            }
+        };
+    }
+
+    if NEEDS_ANY_CONNECTION.contains(&command_name) {
+        return match state {
+            Connection::Neither | Connection::User(_) => Err(BotError::NotConnected),
+            _ => Ok(()),
+        };
     }
 
     Ok(())
 }
 
-/// Maneja interacciones con componentes (botones, menús, etc.)
+// ===== RESPUESTAS =====
+
+/// Responde a la interacción, o edita la respuesta si ya se había diferido.
+///
+/// Un comando que hizo `defer` no puede volver a crear respuesta; sin este
+/// reintento, cualquier error posterior al defer se perdería y el usuario vería
+/// "la interacción falló".
+async fn respond_text(ctx: &Context, command: &CommandInteraction, content: &str, ephemeral: bool) {
+    let message = CreateInteractionResponseMessage::new()
+        .content(content)
+        .ephemeral(ephemeral);
+
+    if command
+        .create_response(&ctx.http, CreateInteractionResponse::Message(message))
+        .await
+        .is_err()
+    {
+        let edit = EditInteractionResponse::new().content(content);
+        if let Err(e) = command.edit_response(&ctx.http, edit).await {
+            warn!("No se pudo responder a la interacción: {e}");
+        }
+    }
+}
+
+async fn reply(ctx: &Context, command: &CommandInteraction, content: impl Into<String>) -> BotResult<()> {
+    let message = CreateInteractionResponseMessage::new().content(content);
+    command
+        .create_response(&ctx.http, CreateInteractionResponse::Message(message))
+        .await?;
+    Ok(())
+}
+
+async fn reply_embed(
+    ctx: &Context,
+    command: &CommandInteraction,
+    embed: CreateEmbed,
+    components: Option<Vec<serenity::builder::CreateActionRow>>,
+    ephemeral: bool,
+) -> BotResult<()> {
+    let mut message = CreateInteractionResponseMessage::new()
+        .embed(embed)
+        .ephemeral(ephemeral);
+    if let Some(components) = components {
+        message = message.components(components);
+    }
+    command
+        .create_response(&ctx.http, CreateInteractionResponse::Message(message))
+        .await?;
+    Ok(())
+}
+
+/// Difiere la respuesta: obligatorio antes de cualquier trabajo que pueda pasar
+/// de los 3 segundos que da Discord (búsquedas y arranques de yt-dlp).
+async fn defer(ctx: &Context, command: &CommandInteraction) -> BotResult<()> {
+    command
+        .create_response(
+            &ctx.http,
+            CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new()),
+        )
+        .await?;
+    Ok(())
+}
+
+async fn edit(ctx: &Context, command: &CommandInteraction, content: impl Into<String>) -> BotResult<()> {
+    command
+        .edit_response(&ctx.http, EditInteractionResponse::new().content(content))
+        .await?;
+    Ok(())
+}
+
+// ===== COMPONENTES =====
+
 pub async fn handle_component(
     ctx: &Context,
     component: ComponentInteraction,
     bot: &OpenMusicBot,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     let guild_id = component
         .guild_id
         .ok_or_else(|| anyhow::anyhow!("Componente usado fuera de un servidor"))?;
 
     info!(
-        "🔘 Botón {} presionado por {} en guild {}",
+        "Botón {} presionado por {} en guild {}",
         component.data.custom_id, component.user.name, guild_id
     );
 
     match component.data.custom_id.as_str() {
         "track_selection" => {
-            // Manejar selección de track del menú de búsqueda
-            if let serenity::model::application::ComponentInteractionDataKind::StringSelect { values } = &component.data.kind {
-                if let Some(selected_value) = values.first() {
-                    if let Some(index_str) = selected_value.strip_prefix("track_") {
-                        if let Ok(index) = index_str.parse::<usize>() {
-                            super::search::handle_track_selection(ctx, &component, bot, index).await?;
-                        }
-                    }
+            if let serenity::model::application::ComponentInteractionDataKind::StringSelect {
+                values,
+            } = &component.data.kind
+            {
+                if let Some(index) = values
+                    .first()
+                    .and_then(|v| v.strip_prefix("track_"))
+                    .and_then(|i| i.parse::<usize>().ok())
+                {
+                    super::search::handle_track_selection(ctx, &component, bot, index).await?;
                 }
             }
         }
-        // Delegar todos los botones musicales al handler especializado
-        id if id.starts_with("music_") => {
-            crate::ui::buttons::handle_music_component(ctx, &component, bot).await?;
-        }
-        // Delegar todos los botones de playlist al handler especializado
-        id if id.starts_with("playlist_") => {
-            crate::ui::buttons::handle_music_component(ctx, &component, bot).await?;
+        id if id.starts_with("music_") || id.starts_with("playlist_") => {
+            buttons::handle_music_component(ctx, &component, bot).await?;
         }
         _ => {
             component
@@ -237,1168 +371,662 @@ pub async fn handle_component(
                     &ctx.http,
                     CreateInteractionResponse::Message(
                         CreateInteractionResponseMessage::new()
-                            .content("❌ Acción no reconocida")
-                            .ephemeral(true)
-                    ),
-                )
-                .await?;
-        }
-    }
-
-    Ok(())
-}
-
-// Handlers específicos para cada comando
-
-async fn handle_play(ctx: &Context, command: CommandInteraction, bot: &OpenMusicBot) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
-    let query = command
-        .data
-        .options
-        .iter()
-        .find(|opt| opt.name == "query")
-        .and_then(|opt| opt.value.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Query no proporcionado"))?;
-
-    // Defer la respuesta inmediatamente para evitar timeout
-    if let Err(e) = command
-        .create_response(
-            &ctx.http,
-            CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new()),
-        )
-        .await
-    {
-        warn!("Error al hacer defer de la respuesta: {}", e);
-        // Intentar responder con error
-        let _ = command
-            .create_response(
-                &ctx.http,
-                CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content("❌ Error al procesar el comando")
-                        .ephemeral(true),
-                ),
-            )
-            .await;
-        return Err(e.into());
-    }
-
-    // Verificar que el usuario esté en un canal de voz
-    let voice_channel_id = match get_user_voice_channel(ctx, guild_id, command.user.id).await {
-        Ok(channel_id) => channel_id,
-        Err(e) => {
-            warn!("Usuario no está en un canal de voz: {}", e);
-            let _ = command
-                .edit_response(
-                    &ctx.http,
-                    serenity::builder::EditInteractionResponse::new()
-                        .content("❌ Debes estar en un canal de voz para usar este comando"),
-                )
-                .await;
-            return Err(e);
-        }
-    };
-
-    // Conectar al canal de voz si no está conectado
-    if bot.get_voice_handler(guild_id).is_none() {
-        bot.join_voice_channel(ctx, guild_id, voice_channel_id)
-            .await?;
-    }
-
-    // Buscar y agregar a la cola con sistema optimizado
-    let is_url = query.starts_with("http");
-    // Detectar playlist por el parámetro `list=` (cubre tanto
-    // youtube.com/playlist?list=... como watch?v=...&list=..., la forma más
-    // común de compartir una lista desde un video).
-    let has_list = query.contains("list=");
-    let is_playlist = is_url && has_list;
-    // Tope de 15 temas al cargar una lista vía /play (incluye mixes/radios
-    // infinitos list=RD/UL). Para cargar listas completas está el comando
-    // /playlist, que no aplica este tope.
-    let playlist_limit: Option<usize> = Some(15);
-
-    if is_playlist {
-        // Es una playlist de YouTube
-        info!("📋 Detectada playlist de YouTube: {}", query);
-
-        // Streaming lazy: reproducir el primer track apenas se extrae y encolar
-        // el resto en segundo plano. No se espera a listar toda la lista, así la
-        // música aparece casi al instante sin importar el tamaño de la playlist.
-        let cookies = YtDlpOptimizedClient::cookies_working_copy();
-        let mut child = match YtDlpOptimizedClient::spawn_playlist_stream(query, cookies.as_deref(), playlist_limit) {
-            Ok(c) => c,
-            Err(e) => {
-                warn!("No se pudo lanzar yt-dlp para playlist: {}", e);
-                anyhow::bail!("No se pudo acceder a la playlist");
-            }
-        };
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("yt-dlp sin stdout"))?;
-        let mut lines = tokio::io::BufReader::new(stdout).lines();
-
-        let queue = bot.player.get_or_create_queue(guild_id);
-        let user_id = command.user.id;
-
-        // Leer hasta el primer track válido del stream
-        let mut first_track: Option<TrackSource> = None;
-        while let Ok(Some(line)) = lines.next_line().await {
-            if let Some(t) = YtDlpOptimizedClient::parse_playlist_line(&line, user_id) {
-                first_track = Some(t);
-                break;
-            }
-        }
-        let first_track = match first_track {
-            Some(t) => t,
-            None => anyhow::bail!("La playlist está vacía o no se pudo acceder"),
-        };
-
-        // Encolar el primero y empezar a reproducir YA
-        {
-            let mut q = queue.write();
-            let _ = q.add_track(first_track.clone());
-        }
-        if !bot.player.is_playing(guild_id).await {
-            if let Some(handler) = bot.get_voice_handler(guild_id) {
-                if let Err(e) = bot.player.play_next(guild_id, handler).await {
-                    warn!("Error iniciando reproducción de playlist: {:?}", e);
-                }
-            }
-        }
-
-        // Responder de inmediato con el primer track (el resto se carga detrás)
-        let embed = embeds::create_track_added_embed(&first_track);
-        let playlist_buttons = crate::ui::buttons::create_playlist_buttons();
-        use serenity::builder::EditInteractionResponse;
-        command
-            .edit_response(&ctx.http, EditInteractionResponse::new()
-                .embed(embed)
-                .components(playlist_buttons)
-            )
-            .await?;
-
-        // Encolar el RESTO de la playlist en segundo plano
-        let queue_bg = queue.clone();
-        tokio::spawn(async move {
-            let mut count = 1usize;
-            while let Ok(Some(line)) = lines.next_line().await {
-                if let Some(t) = YtDlpOptimizedClient::parse_playlist_line(&line, user_id) {
-                    queue_bg.write().add_track(t).ok();
-                    count += 1;
-                }
-            }
-            let _ = child.wait().await;
-            info!("📋 Playlist cargada completa: {} canciones encoladas", count);
-        });
-
-        return Ok(());
-
-    }
-    
-    // Manejar canciones individuales (URL o búsqueda) con sistema optimizado
-    let mut track_source = if is_url {
-        // Es una URL directa de video individual
-        let source_manager = crate::sources::SourceManager::new();
-        source_manager.get_track_from_url(query, command.user.id).await?
-    } else {
-        // Es una búsqueda - usar sistema optimizado
-        info!("🔍 Buscando canción: {}", query);
-        
-        let source_manager = crate::sources::SourceManager::new();
-        let search_results = source_manager.search_all(query, 5).await?;
-        
-        if search_results.is_empty() || search_results[0].tracks.is_empty() {
-            anyhow::bail!("No se encontraron resultados para: {}", query);
-        }
-        
-        // Seleccionar automáticamente el mejor resultado (el primero)
-        let best_result = search_results[0].tracks[0].clone();
-        info!("✅ Seleccionado automáticamente: {}", best_result.title());
-        
-        best_result.with_requested_by(command.user.id)
-    };
-
-    // Establecer el usuario que solicitó la canción
-    track_source = track_source.with_requested_by(command.user.id);
-
-    // ¿Había algo sonando antes? Si no, este tema arranca ya y mostramos el
-    // "now playing"; si sí, solo se encoló y basta con el embed de "agregado".
-    let was_playing = bot.player.is_playing(guild_id).await;
-
-    // Agregar a la cola y reproducir
-    if let Some(handler) = bot.get_voice_handler(guild_id) {
-        match bot.player.play(guild_id, track_source.clone(), handler).await {
-            Ok(_) => {
-                // Responder con confirmación de que la canción fue agregada
-                let embed = embeds::create_track_added_embed(&track_source);
-                use serenity::builder::EditInteractionResponse;
-                if let Err(e) = command
-                    .edit_response(&ctx.http, EditInteractionResponse::new().embed(embed))
-                    .await
-                {
-                    warn!("Error al editar respuesta: {}", e);
-                }
-
-                // Enviar mensaje de "now playing" SOLO si este tema arrancó la
-                // reproducción (no si simplemente se agregó a una cola activa).
-                // Esperar un momento para que la canción se procese.
-                if !was_playing {
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-                if let Some(current_track) = bot.player.get_current_track(guild_id).await {
-                    let now_playing_embed = embeds::create_now_playing_embed_from_source(&current_track);
-                    
-                    // Verificar si hay cola para mostrar botones mejorados
-                    if let Ok(queue_info) = bot.player.get_queue_info(guild_id).await {
-                        let has_queue = queue_info.total_items > 0;
-                        let is_playing = bot.player.is_playing(guild_id).await;
-                        let loop_mode = format!("{:?}", queue_info.loop_mode).to_lowercase();
-                        
-                        let buttons = buttons::create_enhanced_player_buttons(is_playing, has_queue, &loop_mode);
-                        
-                        if let Err(e) = command.channel_id.send_message(
-                            &ctx.http,
-                            serenity::builder::CreateMessage::new()
-                                .embed(now_playing_embed)
-                                .components(buttons)
-                        ).await {
-                            warn!("Error al enviar mensaje de now playing: {}", e);
-                        }
-                    }
-                }
-                } // fin if !was_playing
-            }
-            Err(e) => {
-                warn!("Error al reproducir canción: {}", e);
-                let _ = command
-                    .edit_response(
-                        &ctx.http,
-                        serenity::builder::EditInteractionResponse::new()
-                            .content(format!("❌ Error al reproducir: {}", e)),
-                    )
-                    .await;
-                return Err(e);
-            }
-        }
-    } else {
-        warn!("No hay handler de voz disponible");
-        let _ = command
-            .edit_response(
-                &ctx.http,
-                serenity::builder::EditInteractionResponse::new()
-                    .content("❌ Error: No hay conexión de voz activa"),
-            )
-            .await;
-        anyhow::bail!("No hay conexión de voz activa");
-    }
-
-    Ok(())
-}
-
-async fn handle_pause(
-    ctx: &Context,
-    command: CommandInteraction,
-    bot: &OpenMusicBot,
-) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
-
-    // Validar que hay algo reproduciéndose
-    if !bot.player.is_playing(guild_id).await {
-        command
-            .create_response(
-                &ctx.http,
-                CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content("❌ No hay nada reproduciéndose actualmente")
-                        .ephemeral(true),
-                ),
-            )
-            .await?;
-        return Ok(());
-    }
-
-    bot.player.pause(guild_id).await?;
-
-    command
-        .create_response(
-            &ctx.http,
-            CreateInteractionResponse::Message(
-                CreateInteractionResponseMessage::new().content("⏸️ Reproducción pausada"),
-            ),
-        )
-        .await?;
-
-    Ok(())
-}
-
-async fn handle_resume(
-    ctx: &Context,
-    command: CommandInteraction,
-    bot: &OpenMusicBot,
-) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
-
-    // Validar que el bot está conectado al canal de voz
-    if bot.get_voice_handler(guild_id).is_none() {
-        command
-            .create_response(
-                &ctx.http,
-                CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content("❌ El bot no está conectado a un canal de voz")
-                        .ephemeral(true),
-                ),
-            )
-            .await?;
-        return Ok(());
-    }
-
-    bot.player.resume(guild_id).await?;
-
-    command
-        .create_response(
-            &ctx.http,
-            CreateInteractionResponse::Message(
-                CreateInteractionResponseMessage::new().content("▶️ Reproducción reanudada"),
-            ),
-        )
-        .await?;
-
-    Ok(())
-}
-
-async fn handle_skip(ctx: &Context, command: CommandInteraction, bot: &OpenMusicBot) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
-
-    let amount = command
-        .data
-        .options
-        .iter()
-        .find(|opt| opt.name == "amount")
-        .and_then(|opt| opt.value.as_i64())
-        .unwrap_or(1)
-        .max(1) as usize;
-
-    // Defer: obtener el audio de la siguiente canción puede tardar (yt-dlp) y
-    // superar el límite de 3 s de la interacción.
-    command
-        .create_response(
-            &ctx.http,
-            CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new()),
-        )
-        .await?;
-
-    use serenity::builder::EditInteractionResponse;
-    let content = if let Some(handler) = bot.get_voice_handler(guild_id) {
-        bot.player.skip_tracks(guild_id, amount, handler).await?;
-        format!("⏭️ Saltadas {} canciones", amount)
-    } else {
-        "❌ No hay conexión de voz activa".to_string()
-    };
-
-    command
-        .edit_response(&ctx.http, EditInteractionResponse::new().content(content))
-        .await?;
-
-    Ok(())
-}
-
-async fn handle_stop(ctx: &Context, command: CommandInteraction, bot: &OpenMusicBot) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
-
-    // Validar que el bot está conectado
-    if bot.get_voice_handler(guild_id).is_none() {
-        command
-            .create_response(
-                &ctx.http,
-                CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content("❌ El bot no está reproduciendo nada")
-                        .ephemeral(true),
-                ),
-            )
-            .await?;
-        return Ok(());
-    }
-
-    bot.player.stop(guild_id).await?;
-    bot.leave_voice_channel(ctx, guild_id).await?;
-
-    command
-        .create_response(
-            &ctx.http,
-            CreateInteractionResponse::Message(
-                CreateInteractionResponseMessage::new()
-                    .content("⏹️ Reproducción detenida y cola limpiada"),
-            ),
-        )
-        .await?;
-
-    Ok(())
-}
-
-async fn handle_queue(
-    ctx: &Context,
-    command: CommandInteraction,
-    bot: &OpenMusicBot,
-) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
-
-    let page = command
-        .data
-        .options
-        .iter()
-        .find(|opt| opt.name == "page")
-        .and_then(|opt| opt.value.as_i64())
-        .unwrap_or(1) as usize;
-
-    let queue_info = bot.player.get_queue_info(guild_id).await?;
-    let embed = embeds::create_queue_embed(&queue_info, page);
-
-    command
-        .create_response(
-            &ctx.http,
-            CreateInteractionResponse::Message(
-                CreateInteractionResponseMessage::new().embed(embed),
-            ),
-        )
-        .await?;
-
-    Ok(())
-}
-
-async fn handle_nowplaying(
-    ctx: &Context,
-    command: CommandInteraction,
-    bot: &OpenMusicBot,
-) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
-
-    if let Some(current) = bot.player.get_current_track(guild_id).await {
-        // **NUEVA IMPLEMENTACIÓN**: Crear embed mejorado con estadísticas de audio
-        let mut embed = embeds::create_now_playing_embed_from_source(&current);
-        
-        // Agregar información del ecualizador
-        let eq_details = bot.player.get_equalizer_details(guild_id);
-        embed = embed.field("🎛️ Audio", eq_details, false);
-        
-        // Agregar estadísticas de volumen
-        if let Some(volume) = bot.player.get_volume(guild_id).await {
-            let volume_text = format!("{:.0}% ({})", volume * 100.0, 
-                if volume > 1.0 { "🔊 Amplificado" } 
-                else if volume < 0.3 { "🔉 Bajo" } 
-                else { "🔊 Normal" });
-            embed = embed.field("🔊 Volumen", volume_text, true);
-        }
-        
-        // Información del procesador
-        embed = embed.field("🎧 Procesamiento", "🎵 Audio Nativo", true);
-        
-        let buttons = buttons::create_player_buttons();
-
-        command
-            .create_response(
-                &ctx.http,
-                CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .embed(embed)
-                        .components(buttons),
-                ),
-            )
-            .await?;
-    } else {
-        command
-            .create_response(
-                &ctx.http,
-                CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content("❌ No hay nada reproduciéndose actualmente")
-                        .ephemeral(true),
-                ),
-            )
-            .await?;
-    }
-
-    Ok(())
-}
-
-async fn handle_shuffle(
-    ctx: &Context,
-    command: CommandInteraction,
-    bot: &OpenMusicBot,
-) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
-
-    let shuffled = bot.player.toggle_shuffle(guild_id).await?;
-
-    command
-        .create_response(
-            &ctx.http,
-            CreateInteractionResponse::Message(CreateInteractionResponseMessage::new().content(
-                if shuffled {
-                    "🔀 Modo aleatorio activado"
-                } else {
-                    "➡️ Modo aleatorio desactivado"
-                },
-            )),
-        )
-        .await?;
-
-    Ok(())
-}
-
-async fn handle_loop(ctx: &Context, command: CommandInteraction, bot: &OpenMusicBot) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
-
-    let mode = command
-        .data
-        .options
-        .iter()
-        .find(|opt| opt.name == "mode")
-        .and_then(|opt| opt.value.as_str())
-        .unwrap_or("off");
-
-    // Set the proper loop mode
-    let loop_mode = match mode {
-        "track" => crate::audio::queue::LoopMode::Track,
-        "queue" => crate::audio::queue::LoopMode::Queue,
-        _ => crate::audio::queue::LoopMode::Off,
-    };
-    bot.player.set_loop_mode_specific(guild_id, loop_mode).await?;
-
-    let message = match mode {
-        "track" => "🔂 Repetir canción activado",
-        "queue" => "🔁 Repetir cola activado",
-        _ => "➡️ Repetición desactivada",
-    };
-
-    command
-        .create_response(
-            &ctx.http,
-            CreateInteractionResponse::Message(
-                CreateInteractionResponseMessage::new().content(message),
-            ),
-        )
-        .await?;
-
-    Ok(())
-}
-
-async fn handle_volume(
-    ctx: &Context,
-    command: CommandInteraction,
-    bot: &OpenMusicBot,
-) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
-
-    let volume = command
-        .data
-        .options
-        .iter()
-        .find(|opt| opt.name == "level")
-        .and_then(|opt| opt.value.as_i64());
-
-    if let Some(vol) = volume {
-        // Validar rango
-        if vol < 0 || vol > 200 {
-            command
-                .create_response(
-                    &ctx.http,
-                    CreateInteractionResponse::Message(
-                        CreateInteractionResponseMessage::new()
-                            .content("❌ El volumen debe estar entre 0 y 200%")
+                            .content("Acción no reconocida")
                             .ephemeral(true),
                     ),
                 )
                 .await?;
-            return Ok(());
         }
-
-        let normalized = (vol as f32 / 100.0).clamp(0.0, 2.0);
-        bot.player.set_volume(guild_id, normalized).await?;
-
-        // Mensaje con advertencia si > 100%
-        let message = if vol > 100 {
-            format!("🔊 Volumen ajustado a {}%\n⚠️ **Advertencia**: Volúmenes superiores a 100% pueden causar distorsión", vol)
-        } else if vol == 0 {
-            "🔇 Audio silenciado (0%)".to_string()
-        } else if vol <= 30 {
-            format!("🔉 Volumen ajustado a {}%", vol)
-        } else {
-            format!("🔊 Volumen ajustado a {}%", vol)
-        };
-
-        command
-            .create_response(
-                &ctx.http,
-                CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new().content(message),
-                ),
-            )
-            .await?;
-    } else {
-        let current = bot.player.get_volume(guild_id).await.unwrap_or(0.5);
-        let vol_percent = (current * 100.0) as i32;
-        
-        let emoji = if vol_percent == 0 { "🔇" } 
-                    else if vol_percent <= 30 { "🔉" } 
-                    else { "🔊" };
-        
-        command
-            .create_response(
-                &ctx.http,
-                CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content(format!("{} Volumen actual: {}%", emoji, vol_percent)),
-                ),
-            )
-            .await?;
     }
 
     Ok(())
 }
 
-async fn handle_join(ctx: &Context, command: CommandInteraction, bot: &OpenMusicBot) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
-    let voice_channel_id = get_user_voice_channel(ctx, guild_id, command.user.id).await?;
+// ===== COMANDOS =====
 
-    bot.join_voice_channel(ctx, guild_id, voice_channel_id)
-        .await?;
-
+fn option_str<'a>(command: &'a CommandInteraction, name: &str) -> Option<&'a str> {
     command
-        .create_response(
-            &ctx.http,
-            CreateInteractionResponse::Message(
-                CreateInteractionResponseMessage::new().content("🔊 Conectado al canal de voz"),
-            ),
-        )
-        .await?;
-
-    Ok(())
+        .data
+        .options
+        .iter()
+        .find(|opt| opt.name == name)
+        .and_then(|opt| opt.value.as_str())
 }
 
-async fn handle_leave(
+fn option_bool(command: &CommandInteraction, name: &str) -> Option<bool> {
+    command
+        .data
+        .options
+        .iter()
+        .find(|opt| opt.name == name)
+        .and_then(|opt| opt.value.as_bool())
+}
+
+fn option_i64(command: &CommandInteraction, name: &str) -> Option<i64> {
+    command
+        .data
+        .options
+        .iter()
+        .find(|opt| opt.name == name)
+        .and_then(|opt| opt.value.as_i64())
+}
+
+/// Garantiza que el bot esté conectado **y vivo** en el canal de quien invocó.
+///
+/// No alcanza con preguntar si existe un `Call`: tras echar al bot del canal
+/// puede quedar uno registrado pero sin conexión, y darlo por bueno era
+/// justamente lo que dejaba al bot mudo (encolaba en un driver muerto). Aquí se
+/// comprueba que haya conexión establecida **y** que sea al canal correcto;
+/// cualquier otra cosa se descarta y se entra de nuevo.
+async fn ensure_connected(
     ctx: &Context,
-    command: CommandInteraction,
+    command: &CommandInteraction,
     bot: &OpenMusicBot,
-) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
+    guild_id: GuildId,
+) -> BotResult<()> {
+    let guild = ctx
+        .cache
+        .guild(guild_id)
+        .ok_or(BotError::Other("No encuentro este servidor en caché"))?
+        .clone();
 
-    bot.player.stop(guild_id).await?;
-    bot.leave_voice_channel(ctx, guild_id).await?;
+    let channel_id =
+        get_voice_channel_for_user(&guild, &command.user.id).ok_or(BotError::AuthorNotFound)?;
 
-    command
-        .create_response(
-            &ctx.http,
-            CreateInteractionResponse::Message(
-                CreateInteractionResponseMessage::new().content("👋 Desconectado del canal de voz"),
-            ),
-        )
-        .await?;
+    if let Some(call) = bot.player.call(guild_id) {
+        let handler = call.lock().await;
+        let live_here = handler.current_connection().is_some()
+            && handler.current_channel().map(|c| ChannelId::from(c.0)) == Some(channel_id);
+        drop(handler);
 
-    Ok(())
-}
-
-// ===== NUEVOS COMANDOS =====
-
-async fn handle_previous(ctx: &Context, command: CommandInteraction, bot: &OpenMusicBot) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
-
-    // Defer: reproducir el track anterior puede tardar (yt-dlp).
-    command
-        .create_response(
-            &ctx.http,
-            CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new()),
-        )
-        .await?;
-
-    use serenity::builder::EditInteractionResponse;
-
-    let handler = match bot.get_voice_handler(guild_id) {
-        Some(h) => h,
-        None => {
-            command
-                .edit_response(
-                    &ctx.http,
-                    EditInteractionResponse::new()
-                        .content("❌ El bot no está conectado a un canal de voz"),
-                )
-                .await?;
+        if live_here {
             return Ok(());
         }
-    };
 
-    let queue = bot.player.get_or_create_queue(guild_id);
-    let previous_source = {
-        let mut q = queue.write();
-        q.previous_track()
-    };
-
-    let content = if let Some(source) = previous_source {
-        // `previous_track` ya fijó el track anterior como actual; lo reproducimos
-        // de inmediato sin volver a encolarlo.
-        if let Err(e) = bot.player.play_source_now(guild_id, source.clone(), handler).await {
-            warn!("Error reproduciendo track anterior: {:?}", e);
-        }
-        format!("⏮️ Volviendo a: **{}**", source.title())
-    } else {
-        "❌ No hay canciones anteriores en el historial".to_string()
-    };
-
-    command
-        .edit_response(&ctx.http, EditInteractionResponse::new().content(content))
-        .await?;
-
-    Ok(())
-}
-
-async fn handle_restart(ctx: &Context, command: CommandInteraction, bot: &OpenMusicBot) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
-
-    // Defer: volver a abrir el stream del tema actual puede tardar (yt-dlp).
-    command
-        .create_response(
-            &ctx.http,
-            CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new()),
-        )
-        .await?;
-
-    use serenity::builder::EditInteractionResponse;
-
-    let handler = match bot.get_voice_handler(guild_id) {
-        Some(h) => h,
-        None => {
-            command
-                .edit_response(
-                    &ctx.http,
-                    EditInteractionResponse::new()
-                        .content("❌ El bot no está conectado a un canal de voz"),
-                )
-                .await?;
-            return Ok(());
-        }
-    };
-
-    let content = match bot.player.get_current_track(guild_id).await {
-        Some(current) => {
-            // Reproducir el tema actual desde el inicio (get_input arranca en 0).
-            if let Err(e) = bot.player.play_source_now(guild_id, current.clone(), handler).await {
-                warn!("Error reiniciando track: {:?}", e);
-                "❌ No se pudo reiniciar la canción".to_string()
-            } else {
-                format!("🔁 Reiniciando: **{}**", current.title())
-            }
-        }
-        None => "❌ No hay nada reproduciéndose".to_string(),
-    };
-
-    command
-        .edit_response(&ctx.http, EditInteractionResponse::new().content(content))
-        .await?;
-
-    Ok(())
-}
-
-async fn handle_seek(ctx: &Context, command: CommandInteraction, bot: &OpenMusicBot) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
-
-    // Validar que hay algo reproduciéndose
-    if !bot.player.is_playing(guild_id).await {
-        command
-            .create_response(
-                &ctx.http,
-                CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content("❌ No hay nada reproduciéndose")
-                        .ephemeral(true),
-                ),
-            )
-            .await?;
-        return Ok(());
+        bot.player.manager().remove(guild_id).await.ok();
     }
 
-    let time_str = command
-        .data
-        .options
-        .iter()
-        .find(|opt| opt.name == "time")
-        .and_then(|opt| opt.value.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Tiempo requerido"))?;
-
-    // Parsear tiempo (formatos: "90", "1:30", "1:30:00")
-    let seconds = parse_time_string(time_str)?;
-
-    // Nota: Songbird seek no está implementado de forma directa en todas las fuentes
-    // Por ahora, mostraremos un mensaje informativo
-    command
-        .create_response(
-            &ctx.http,
-            CreateInteractionResponse::Message(
-                CreateInteractionResponseMessage::new()
-                    .content(format!("⏩ Saltando a {}... (función en desarrollo para streaming directo)", format_seconds(seconds))),
-            ),
-        )
-        .await?;
-
-    Ok(())
+    bot.join_voice_channel(ctx, guild_id, channel_id, command.channel_id)
+        .await
+        .map_err(BotError::from)
 }
 
-async fn handle_add(ctx: &Context, command: CommandInteraction, bot: &OpenMusicBot) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
+async fn handle_play(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+    let query = option_str(command, "query")
+        .ok_or(BotError::Other("Falta la búsqueda o el enlace"))?
+        .to_string();
 
-    let query = command
-        .data
-        .options
-        .iter()
-        .find(|opt| opt.name == "query")
-        .and_then(|opt| opt.value.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Query requerido"))?;
+    defer(ctx, command).await?;
+    ensure_connected(ctx, command, bot, guild_id).await?;
 
-    // Defer para operaciones largas
-    command
-        .create_response(
-            &ctx.http,
-            CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new()),
-        )
-        .await?;
+    let is_url = query.starts_with("http");
+    // `list=` cubre tanto /playlist?list=... como watch?v=...&list=..., que es
+    // como se comparte una lista desde un video.
+    let is_playlist = is_url && query.contains("list=");
 
-    // Buscar la canción
+    if is_playlist {
+        return play_playlist_stream(ctx, command, bot, guild_id, &query).await;
+    }
+
+    let was_playing = bot.player.is_playing(guild_id).await;
+
     let source_manager = crate::sources::SourceManager::new();
-    let search_results = source_manager.search_all(query, 1).await?;
+    let track = if is_url {
+        source_manager
+            .get_track_from_url(&query, command.user.id)
+            .await
+            .map_err(|e| BotError::TrackFail(e.to_string()))?
+    } else {
+        info!("Buscando: {}", query);
+        let results = source_manager
+            .search_all(&query, 5)
+            .await
+            .map_err(|e| BotError::TrackFail(e.to_string()))?;
 
-    if search_results.is_empty() || search_results[0].tracks.is_empty() {
-        command
-            .edit_response(
-                &ctx.http,
-                serenity::builder::EditInteractionResponse::new()
-                    .content(format!("❌ No se encontraron resultados para: {}", query)),
-            )
-            .await?;
-        return Ok(());
-    }
+        let best = results
+            .first()
+            .and_then(|r| r.tracks.first())
+            .cloned()
+            .ok_or_else(|| BotError::TrackFail(format!("Sin resultados para «{query}»")))?;
 
-    let track = search_results[0].tracks[0].clone().with_requested_by(command.user.id);
-    let title = track.title();
+        info!("Elegido: {}", best.title());
+        best.with_requested_by(command.user.id)
+    };
 
-    // Agregar a la cola sin reproducir
-    let queue = bot.player.get_or_create_queue(guild_id);
-    {
-        let mut q = queue.write();
-        q.add_track(track)?;
-    }
+    bot.player.play(guild_id, track.clone()).await?;
 
     command
         .edit_response(
             &ctx.http,
-            serenity::builder::EditInteractionResponse::new()
-                .content(format!("➕ **{}** agregado a la cola", title)),
+            EditInteractionResponse::new().embed(embeds::create_track_added_embed(&track)),
         )
         .await?;
 
-    Ok(())
-}
-
-async fn handle_remove(ctx: &Context, command: CommandInteraction, bot: &OpenMusicBot) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
-
-    let position = command
-        .data
-        .options
-        .iter()
-        .find(|opt| opt.name == "position")
-        .and_then(|opt| opt.value.as_i64())
-        .ok_or_else(|| anyhow::anyhow!("Posición requerida"))? as usize;
-
-    let queue = bot.player.get_or_create_queue(guild_id);
-    let result = {
-        let mut q = queue.write();
-        let queue_len = q.get_info().total_items;
-        
-        if position == 0 || position > queue_len {
-            Err(anyhow::anyhow!("Posición {} fuera de rango (1-{})", position, queue_len))
-        } else {
-            q.remove_track(position - 1) // Convertir a 0-indexed
-        }
-    };
-
-    match result {
-        Ok(_) => {
-            command
-                .create_response(
-                    &ctx.http,
-                    CreateInteractionResponse::Message(
-                        CreateInteractionResponseMessage::new()
-                            .content(format!("🗑️ Canción en posición {} removida", position)),
-                    ),
-                )
-                .await?;
-        }
-        Err(e) => {
-            command
-                .create_response(
-                    &ctx.http,
-                    CreateInteractionResponse::Message(
-                        CreateInteractionResponseMessage::new()
-                            .content(format!("❌ {}", e))
-                            .ephemeral(true),
-                    ),
-                )
-                .await?;
-        }
+    // El "sonando ahora" sólo tiene sentido si este tema arrancó la
+    // reproducción; si se sumó a una cola activa, basta con el "agregado".
+    if !was_playing {
+        send_now_playing(ctx, command.channel_id, bot, guild_id).await;
     }
 
     Ok(())
 }
 
-async fn handle_jump(ctx: &Context, command: CommandInteraction, bot: &OpenMusicBot) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
-
-    let position = command
-        .data
-        .options
-        .iter()
-        .find(|opt| opt.name == "position")
-        .and_then(|opt| opt.value.as_i64())
-        .ok_or_else(|| anyhow::anyhow!("Posición requerida"))? as usize;
-
-    // Defer: reproducir el track objetivo puede tardar (yt-dlp).
-    command
-        .create_response(
-            &ctx.http,
-            CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new()),
-        )
-        .await?;
-
-    use serenity::builder::EditInteractionResponse;
-
-    let handler = match bot.get_voice_handler(guild_id) {
-        Some(h) => h,
-        None => {
-            command
-                .edit_response(
-                    &ctx.http,
-                    EditInteractionResponse::new()
-                        .content("❌ El bot no está conectado a un canal de voz"),
-                )
-                .await?;
-            return Ok(());
-        }
-    };
-
-    let queue = bot.player.get_or_create_queue(guild_id);
-    let jump_result = {
-        let mut q = queue.write();
-        q.jump_to(position)
-    };
-
-    if let Some(source) = jump_result {
-        // `jump_to` ya fijó el track objetivo como actual; lo reproducimos de
-        // inmediato (deteniendo lo que sonaba) en vez de re-encolarlo.
-        if let Err(e) = bot.player.play_source_now(guild_id, source.clone(), handler).await {
-            warn!("Error reproduciendo track: {:?}", e);
-        }
-
-        command
-            .edit_response(
-                &ctx.http,
-                EditInteractionResponse::new()
-                    .content(format!("🎯 Saltando a posición {}: **{}**", position, source.title())),
-            )
-            .await?;
-    } else {
-        command
-            .edit_response(
-                &ctx.http,
-                EditInteractionResponse::new()
-                    .content(format!("❌ Posición {} no válida", position)),
-            )
-            .await?;
-    }
-
-    Ok(())
-}
-
-// Funciones auxiliares para los nuevos comandos
-
-fn parse_time_string(time_str: &str) -> Result<u64> {
-    let parts: Vec<&str> = time_str.split(':').collect();
-    
-    match parts.len() {
-        1 => {
-            // Solo segundos: "90"
-            parts[0].parse::<u64>().map_err(|_| anyhow::anyhow!("Formato de tiempo inválido"))
-        }
-        2 => {
-            // Minutos:segundos: "1:30"
-            let minutes = parts[0].parse::<u64>().map_err(|_| anyhow::anyhow!("Formato de tiempo inválido"))?;
-            let seconds = parts[1].parse::<u64>().map_err(|_| anyhow::anyhow!("Formato de tiempo inválido"))?;
-            Ok(minutes * 60 + seconds)
-        }
-        3 => {
-            // Horas:minutos:segundos: "1:30:00"
-            let hours = parts[0].parse::<u64>().map_err(|_| anyhow::anyhow!("Formato de tiempo inválido"))?;
-            let minutes = parts[1].parse::<u64>().map_err(|_| anyhow::anyhow!("Formato de tiempo inválido"))?;
-            let seconds = parts[2].parse::<u64>().map_err(|_| anyhow::anyhow!("Formato de tiempo inválido"))?;
-            Ok(hours * 3600 + minutes * 60 + seconds)
-        }
-        _ => Err(anyhow::anyhow!("Formato de tiempo inválido. Usa: segundos, min:seg, o hora:min:seg"))
-    }
-}
-
-fn format_seconds(total_seconds: u64) -> String {
-    let hours = total_seconds / 3600;
-    let minutes = (total_seconds % 3600) / 60;
-    let seconds = total_seconds % 60;
-    
-    if hours > 0 {
-        format!("{}:{:02}:{:02}", hours, minutes, seconds)
-    } else {
-        format!("{}:{:02}", minutes, seconds)
-    }
-}
-
-async fn handle_help(ctx: &Context, command: CommandInteraction, _bot: &OpenMusicBot) -> Result<()> {
-    let specific_command = command
-        .data
-        .options
-        .iter()
-        .find(|opt| opt.name == "command")
-        .and_then(|opt| opt.value.as_str());
-
-    let embed = if let Some(cmd) = specific_command {
-        embeds::create_command_help_embed(cmd)
-    } else {
-        embeds::create_help_embed()
-    };
-
-    command
-        .create_response(
-            &ctx.http,
-            CreateInteractionResponse::Message(
-                CreateInteractionResponseMessage::new()
-                    .embed(embed)
-                    .ephemeral(true),
-            ),
-        )
-        .await?;
-
-    Ok(())
-}
-
-
-// Funciones auxiliares
-
-async fn get_user_voice_channel(
+/// Carga una playlist en streaming: suena el primer tema apenas se conoce y el
+/// resto se encola por detrás.
+///
+/// Leer la lista entera antes de empezar hacía esperar decenas de segundos en
+/// listas grandes (y para siempre en los mixes infinitos `list=RD...`).
+async fn play_playlist_stream(
     ctx: &Context,
-    guild_id: GuildId,
-    user_id: UserId,
-) -> Result<ChannelId> {
-    let guild = guild_id
-        .to_guild_cached(&ctx.cache)
-        .ok_or_else(|| anyhow::anyhow!("Guild no encontrada en caché"))?;
-
-    let channel_id = guild
-        .voice_states
-        .get(&user_id)
-        .and_then(|voice_state| voice_state.channel_id)
-        .ok_or_else(|| anyhow::anyhow!("Debes estar en un canal de voz"))?;
-
-    Ok(channel_id)
-}
-
-async fn handle_equalizer(
-    ctx: &Context,
-    command: CommandInteraction,
+    command: &CommandInteraction,
     bot: &OpenMusicBot,
-) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
+    guild_id: GuildId,
+    query: &str,
+) -> BotResult<()> {
+    /// Tope de temas al cargar una lista con `/play`. Para listas completas
+    /// está `/playlist`.
+    const PLAY_PLAYLIST_LIMIT: usize = 15;
 
-    let preset_name = command
-        .data
-        .options
-        .iter()
-        .find(|opt| opt.name == "preset")
-        .and_then(|opt| opt.value.as_str())
-        .unwrap_or("flat");
+    info!("Playlist detectada: {}", query);
 
-    let preset = match preset_name {
-        "bass" => crate::audio::effects::EqualizerPreset::Bass,
-        "pop" => crate::audio::effects::EqualizerPreset::Pop,
-        "rock" => crate::audio::effects::EqualizerPreset::Rock,
-        "jazz" => crate::audio::effects::EqualizerPreset::Jazz,
-        "classical" => crate::audio::effects::EqualizerPreset::Classical,
-        "electronic" => crate::audio::effects::EqualizerPreset::Electronic,
-        "vocal" => crate::audio::effects::EqualizerPreset::Vocal,
-        _ => crate::audio::effects::EqualizerPreset::Flat,
-    };
+    let cookies = YtDlpOptimizedClient::cookies_working_copy();
+    let mut child =
+        YtDlpOptimizedClient::spawn_playlist_stream(query, cookies.as_deref(), Some(PLAY_PLAYLIST_LIMIT))
+            .map_err(|e| BotError::TrackFail(format!("No pude leer la playlist: {e}")))?;
 
-    bot.player.apply_equalizer_preset(guild_id, preset).await?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or(BotError::Other("yt-dlp no devolvió salida"))?;
+    let mut lines = tokio::io::BufReader::new(stdout).lines();
 
-    info!("✅ Ecualizador aplicado: {:?}", preset);
+    let user_id = command.user.id;
 
-    // El filtro ffmpeg se fija al iniciar cada tema, así que si ya hay algo
-    // sonando el preset recién se nota desde la próxima canción.
-    let content = if bot.player.is_playing(guild_id).await {
-        format!(
-            "🎛️ Preset **{}** activado.\n⏭️ Se aplicará desde la **próxima canción** (o usá `/restart` para oírlo ya en la actual).",
-            preset_name
-        )
-    } else {
-        format!("🎛️ Preset de ecualizador **{}** aplicado", preset_name)
-    };
+    let mut first_track = None;
+    while let Ok(Some(line)) = lines.next_line().await {
+        if let Some(track) = YtDlpOptimizedClient::parse_playlist_line(&line, user_id) {
+            first_track = Some(track);
+            break;
+        }
+    }
+    let first_track = first_track
+        .ok_or_else(|| BotError::TrackFail("La playlist está vacía".to_string()))?;
+
+    bot.player.play(guild_id, first_track.clone()).await?;
 
     command
-        .create_response(
+        .edit_response(
             &ctx.http,
-            CreateInteractionResponse::Message(
-                CreateInteractionResponseMessage::new().content(content),
-            ),
+            EditInteractionResponse::new()
+                .embed(embeds::create_track_added_embed(&first_track))
+                .components(buttons::create_playlist_buttons()),
         )
         .await?;
 
+    let player = bot.player.clone();
+    tokio::spawn(async move {
+        let mut count = 1usize;
+        while let Ok(Some(line)) = lines.next_line().await {
+            if let Some(track) = YtDlpOptimizedClient::parse_playlist_line(&line, user_id) {
+                if player.play(guild_id, track).await.is_ok() {
+                    count += 1;
+                }
+            }
+        }
+        child.wait().await.ok();
+        info!("Playlist encolada: {} canciones", count);
+    });
+
     Ok(())
+}
+
+/// Publica el embed de "sonando ahora" en el canal de texto.
+async fn send_now_playing(
+    ctx: &Context,
+    channel_id: ChannelId,
+    bot: &OpenMusicBot,
+    guild_id: GuildId,
+) {
+    // Dar un instante a que la pista arranque de verdad antes de anunciarla.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let Some(current) = bot.player.get_current_track(guild_id).await else {
+        return;
+    };
+    let Ok(queue_info) = bot.player.get_queue_info(guild_id).await else {
+        return;
+    };
+
+    let embed = embeds::create_now_playing_embed_from_source(&current);
+    let controls = buttons::create_enhanced_player_buttons(
+        bot.player.is_playing(guild_id).await,
+        queue_info.total_items > 0,
+        &format!("{:?}", queue_info.loop_mode).to_lowercase(),
+    );
+
+    if let Err(e) = channel_id
+        .send_message(
+            &ctx.http,
+            serenity::builder::CreateMessage::new()
+                .embed(embed)
+                .components(controls),
+        )
+        .await
+    {
+        warn!("No se pudo enviar el «sonando ahora»: {e}");
+    }
+}
+
+async fn handle_pause(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+    verify(bot.player.is_playing(guild_id).await, BotError::NothingPlaying)?;
+
+    bot.player.pause(guild_id).await?;
+    reply(ctx, command, "Reproducción pausada").await
+}
+
+async fn handle_resume(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+    verify(
+        bot.player.current_meta(guild_id).await.is_some(),
+        BotError::QueueEmpty,
+    )?;
+
+    bot.player.resume(guild_id).await?;
+    reply(ctx, command, "Reproducción reanudada").await
+}
+
+async fn handle_skip(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+    let amount = option_i64(command, "amount").unwrap_or(1).max(1) as usize;
+
+    verify(
+        bot.player.current_meta(guild_id).await.is_some(),
+        BotError::NothingPlaying,
+    )?;
+
+    defer(ctx, command).await?;
+    bot.player.skip_tracks(guild_id, amount).await?;
+
+    let content = match bot.player.current_meta(guild_id).await {
+        Some(next) => format!("Ahora suena: **{}**", next.title),
+        None => "Cola terminada".to_string(),
+    };
+    edit(ctx, command, content).await
+}
+
+async fn handle_stop(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+    verify(
+        bot.player.current_meta(guild_id).await.is_some(),
+        BotError::NothingPlaying,
+    )?;
+
+    bot.player.stop(guild_id).await?;
+    reply(
+        ctx,
+        command,
+        "Reproducción detenida y cola limpiada (me quedo por acá un rato)",
+    )
+    .await
+}
+
+async fn handle_leave(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+
+    bot.player.stop(guild_id).await?;
+    bot.leave_voice_channel(ctx, guild_id).await?;
+    reply(ctx, command, "Desconectado del canal de voz").await
+}
+
+async fn handle_join(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+    ensure_connected(ctx, command, bot, guild_id).await?;
+    reply(ctx, command, "Conectado al canal de voz").await
+}
+
+async fn handle_queue(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+    let page = option_i64(command, "page").unwrap_or(1).max(1) as usize;
+
+    let queue_info = bot.player.get_queue_info(guild_id).await?;
+    let embed = embeds::create_queue_embed(&queue_info, page);
+
+    reply_embed(ctx, command, embed, None, false).await
+}
+
+async fn handle_nowplaying(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+    let current = bot
+        .player
+        .get_current_track(guild_id)
+        .await
+        .ok_or(BotError::NothingPlaying)?;
+
+    let mut embed = embeds::create_now_playing_embed_from_source(&current);
+    embed = embed.field("Audio", bot.player.get_equalizer_details(guild_id), false);
+
+    if let Some(volume) = bot.player.get_volume(guild_id).await {
+        let etiqueta = if volume > 1.0 {
+            "Amplificado"
+        } else if volume < 0.3 {
+            "Bajo"
+        } else {
+            "Normal"
+        };
+        embed = embed.field(
+            "Volumen",
+            format!("{:.0}% ({})", volume * 100.0, etiqueta),
+            true,
+        );
+    }
+
+    if let Some(position) = bot.player.current_position(guild_id).await {
+        embed = embed.field("Posición", format_duration(position), true);
+    }
+
+    reply_embed(
+        ctx,
+        command,
+        embed,
+        Some(buttons::create_player_buttons()),
+        false,
+    )
+    .await
+}
+
+async fn handle_shuffle(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+    let shuffled = bot.player.toggle_shuffle(guild_id).await?;
+
+    reply(
+        ctx,
+        command,
+        if shuffled {
+            "Modo aleatorio activado (cola mezclada)"
+        } else {
+            "Modo aleatorio desactivado"
+        },
+    )
+    .await
+}
+
+async fn handle_loop(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+    let mode = option_str(command, "mode").unwrap_or("off");
+
+    let (loop_mode, message) = match mode {
+        "track" => (LoopMode::Track, "Repetir canción activado"),
+        "queue" => (LoopMode::Queue, "Repetir cola activado"),
+        _ => (LoopMode::Off, "Repetición desactivada"),
+    };
+
+    bot.player.set_loop_mode_specific(guild_id, loop_mode).await?;
+    reply(ctx, command, message).await
+}
+
+async fn handle_volume(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+
+    let Some(level) = option_i64(command, "level") else {
+        let current = bot.player.get_volume(guild_id).await.unwrap_or(0.5);
+        let percent = (current * 100.0) as i32;
+        let emoji = volume_emoji(percent);
+        return reply(ctx, command, format!("{emoji} Volumen actual: {percent}%")).await;
+    };
+
+    if !(0..=200).contains(&level) {
+        return Err(BotError::NotInRange("volumen", level as isize, 0, 200));
+    }
+
+    bot.player
+        .set_volume(guild_id, (level as f32 / 100.0).clamp(0.0, 2.0))
+        .await?;
+
+    let message = if level > 100 {
+        format!("Volumen al {level}%\nPor encima del 100% puede distorsionar")
+    } else if level == 0 {
+        "Audio silenciado".to_string()
+    } else {
+        format!("{} Volumen al {}%", volume_emoji(level as i32), level)
+    };
+
+    reply(ctx, command, message).await
+}
+
+fn volume_emoji(percent: i32) -> &'static str {
+    match percent {
+        0 => "",
+        1..=30 => "",
+        _ => "",
+    }
+}
+
+async fn handle_previous(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+
+    defer(ctx, command).await?;
+    let previous = bot
+        .player
+        .play_previous(guild_id)
+        .await
+        .map_err(|_| BotError::NoHistory)?;
+
+    edit(ctx, command, format!("Volviendo a: **{}**", previous.title)).await
+}
+
+async fn handle_restart(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+
+    defer(ctx, command).await?;
+    let current = bot
+        .player
+        .restart_current(guild_id)
+        .await
+        .map_err(|_| BotError::NothingPlaying)?;
+
+    edit(ctx, command, format!("Reiniciando: **{}**", current.title)).await
+}
+
+async fn handle_seek(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+    let time_str = option_str(command, "time").ok_or(BotError::Other(
+        "Indicá la posición (por ejemplo `1:30`)",
+    ))?;
+
+    let seconds = parse_time_string(time_str)?;
+    let position = Duration::from_secs(seconds);
+
+    let current = bot
+        .player
+        .current_meta(guild_id)
+        .await
+        .ok_or(BotError::NothingPlaying)?;
+
+    if let Some(duration) = current.duration {
+        if position >= duration {
+            return Err(BotError::NotInRange(
+                "posición",
+                seconds as isize,
+                0,
+                duration.as_secs() as isize,
+            ));
+        }
+    }
+
+    defer(ctx, command).await?;
+    let track = bot
+        .player
+        .seek_current(guild_id, position)
+        .await
+        .map_err(|e| BotError::TrackFail(e.to_string()))?;
+
+    edit(
+        ctx,
+        command,
+        format!("**{}** desde {}", track.title, format_duration(position)),
+    )
+    .await
+}
+
+async fn handle_add(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+    let query = option_str(command, "query")
+        .ok_or(BotError::Other("Falta la búsqueda"))?
+        .to_string();
+
+    defer(ctx, command).await?;
+    ensure_connected(ctx, command, bot, guild_id).await?;
+
+    let source_manager = crate::sources::SourceManager::new();
+    let results = source_manager
+        .search_all(&query, 1)
+        .await
+        .map_err(|e| BotError::TrackFail(e.to_string()))?;
+
+    let track = results
+        .first()
+        .and_then(|r| r.tracks.first())
+        .cloned()
+        .ok_or_else(|| BotError::TrackFail(format!("Sin resultados para «{query}»")))?
+        .with_requested_by(command.user.id);
+
+    let title = track.title();
+    bot.player.play(guild_id, track).await?;
+
+    edit(ctx, command, format!("**{title}** agregado a la cola")).await
+}
+
+async fn handle_remove(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+    let position = option_i64(command, "position")
+        .ok_or(BotError::Other("Indicá la posición a quitar"))?
+        .max(0) as usize;
+
+    let removed = bot
+        .player
+        .remove_track(guild_id, position)
+        .await
+        .map_err(|e| BotError::Dynamic(format!("{e}")))?;
+
+    reply(
+        ctx,
+        command,
+        format!("Quitada de la cola: **{}**", removed.title),
+    )
+    .await
+}
+
+async fn handle_jump(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+    let position = option_i64(command, "position")
+        .ok_or(BotError::Other("Indicá la posición"))?
+        .max(0) as usize;
+
+    defer(ctx, command).await?;
+    let target = bot
+        .player
+        .jump_to(guild_id, position)
+        .await
+        .map_err(|e| BotError::Dynamic(format!("{e}")))?;
+
+    edit(
+        ctx,
+        command,
+        format!("Saltando a la posición {position}: **{}**", target.title),
+    )
+    .await
 }
 
 async fn handle_clear(
     ctx: &Context,
-    command: CommandInteraction,
+    command: &CommandInteraction,
     bot: &OpenMusicBot,
-) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+    let target = option_str(command, "target").unwrap_or("queue");
 
-    let target = command
-        .data
-        .options
-        .iter()
-        .find(|opt| opt.name == "target")
-        .and_then(|opt| opt.value.as_str())
-        .unwrap_or("queue");
-
-    match target {
+    let message = match target {
         "queue" => {
             bot.player.clear_queue(guild_id).await?;
-            command
-                .create_response(
-                    &ctx.http,
-                    CreateInteractionResponse::Message(
-                        CreateInteractionResponseMessage::new()
-                            .content("🗑️ Cola limpiada"),
-                    ),
-                )
-                .await?;
+            "Cola limpiada".to_string()
         }
         "duplicates" => {
             let removed = bot.player.clear_duplicates(guild_id).await?;
-            command
-                .create_response(
-                    &ctx.http,
-                    CreateInteractionResponse::Message(
-                        CreateInteractionResponseMessage::new()
-                            .content(format!("🗑️ Eliminados {} duplicados", removed)),
-                    ),
-                )
-                .await?;
+            format!("Eliminados {removed} duplicados")
         }
         "user" => {
             let user = command
@@ -1410,526 +1038,347 @@ async fn handle_clear(
                 .unwrap_or(command.user.id);
 
             let removed = bot.player.clear_user_tracks(guild_id, user).await?;
-            command
-                .create_response(
-                    &ctx.http,
-                    CreateInteractionResponse::Message(
-                        CreateInteractionResponseMessage::new()
-                            .content(format!("🗑️ Eliminadas {} canciones del usuario", removed)),
-                    ),
-                )
-                .await?;
+            format!("Eliminadas {removed} canciones de {}", user.mention())
         }
-        _ => {
-            command
-                .create_response(
-                    &ctx.http,
-                    CreateInteractionResponse::Message(
-                        CreateInteractionResponseMessage::new()
-                            .content("❌ Objetivo de limpieza no válido")
-                            .ephemeral(true),
-                    ),
-                )
-                .await?;
-        }
-    }
+        _ => return Err(BotError::Other("Objetivo de limpieza no válido")),
+    };
 
-    Ok(())
+    reply(ctx, command, message).await
+}
+
+async fn handle_equalizer(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    use crate::audio::effects::EqualizerPreset;
+
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+    let preset_name = option_str(command, "preset").unwrap_or("flat");
+
+    let preset = match preset_name {
+        "bass" => EqualizerPreset::Bass,
+        "pop" => EqualizerPreset::Pop,
+        "rock" => EqualizerPreset::Rock,
+        "jazz" => EqualizerPreset::Jazz,
+        "classical" => EqualizerPreset::Classical,
+        "electronic" => EqualizerPreset::Electronic,
+        "vocal" => EqualizerPreset::Vocal,
+        _ => EqualizerPreset::Flat,
+    };
+
+    bot.player.apply_equalizer_preset(guild_id, preset).await?;
+
+    // El filtro se resuelve al abrir el stream de cada pista, así que la que ya
+    // está sonando conserva el preset viejo; el resto de la cola ya sale con el
+    // nuevo sin tocar nada.
+    let content = if bot.player.is_playing(guild_id).await {
+        format!(
+            "Preset **{preset_name}** activado.\nSe oye desde la próxima canción (o usá `/restart` para aplicarlo ya)."
+        )
+    } else {
+        format!("Preset **{preset_name}** aplicado")
+    };
+
+    reply(ctx, command, content).await
 }
 
 async fn handle_playlist(
     ctx: &Context,
-    command: CommandInteraction,
+    command: &CommandInteraction,
     bot: &OpenMusicBot,
-) -> Result<()> {
-    let guild_id = command.guild_id.unwrap();
-    
-    // Obtener la URL de la playlist del comando
-    let playlist_url = command
-        .data
-        .options
-        .iter()
-        .find(|opt| opt.name == "url")
-        .and_then(|opt| opt.value.as_str())
-        .ok_or_else(|| anyhow::anyhow!("URL de playlist requerida"))?;
+) -> BotResult<()> {
+    let guild_id = command.guild_id.ok_or(BotError::NotInGuild)?;
+    let url = option_str(command, "url")
+        .ok_or(BotError::Other("Falta la URL de la playlist"))?
+        .to_string();
 
-    // Verificar que el usuario esté en un canal de voz
-    let voice_channel_id = get_user_voice_channel(ctx, guild_id, command.user.id).await?;
+    defer(ctx, command).await?;
+    ensure_connected(ctx, command, bot, guild_id).await?;
 
-    // Conectar al canal de voz si no está conectado
-    if bot.get_voice_handler(guild_id).is_none() {
-        bot.join_voice_channel(ctx, guild_id, voice_channel_id)
-            .await?;
-    }
-
-    // Defer la respuesta porque las playlists pueden tomar tiempo
-    command
-        .create_response(
-            &ctx.http,
-            CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new()),
-        )
-        .await?;
-
-    info!("🎵 Cargando playlist: {} por {}", playlist_url, command.user.name);
-
-    // Determinar el tipo de playlist
-    if playlist_url.contains("youtube.com") || playlist_url.contains("youtu.be") {
-        handle_youtube_playlist(ctx, &command, bot, guild_id, playlist_url).await?;
+    let result = if url.contains("youtube.com") || url.contains("youtu.be") {
+        load_youtube_playlist(ctx, command, bot, guild_id, &url).await
     } else {
-        // Intentar como URL directa
-        handle_direct_url_playlist(ctx, &command, bot, guild_id, playlist_url).await?;
+        load_direct_url(ctx, command, bot, guild_id, &url).await
+    };
+
+    // La opción `shuffle` del comando estaba declarada pero nunca se usaba.
+    if result.is_ok() && option_bool(command, "shuffle").unwrap_or(false) {
+        bot.player.shuffle_pending(guild_id).await;
     }
 
-    Ok(())
+    result
 }
 
-/// Maneja playlist de YouTube
-async fn handle_youtube_playlist(
+/// Carga una playlist completa de YouTube mostrando el progreso.
+async fn load_youtube_playlist(
     ctx: &Context,
     command: &CommandInteraction,
     bot: &OpenMusicBot,
     guild_id: GuildId,
     playlist_url: &str,
-) -> Result<()> {
-    use serenity::builder::EditInteractionResponse;
-    
-    let _ytdlp_client = crate::sources::YtDlpOptimizedClient::new();
-    
-    // Verificar si es una URL de playlist válida
+) -> BotResult<()> {
     if !playlist_url.contains("list=") {
-        command
-            .edit_response(
-                &ctx.http,
-                EditInteractionResponse::new()
-                    .embed(embeds::create_error_embed("Error", "URL de playlist de YouTube inválida. Debe contener 'list='"))
-            )
-            .await?;
-        return Ok(());
+        return Err(BotError::Other(
+            "La URL no es de una playlist (debe contener `list=`)",
+        ));
     }
 
-    // Obtener información básica de la playlist primero
-    info!("🔍 Obteniendo información de playlist: {}", playlist_url);
-    
-    // Mostrar embed inicial de carga
-    let loading_embed = crate::ui::embeds::create_playlist_loading_embed(
-        "Analizando playlist...",
-        0,
-        0,
-        &[],
-        playlist_url
-    );
-    let loading_buttons = crate::ui::buttons::MusicControls::create_playlist_loading_controls(None);
-    
     command
         .edit_response(
             &ctx.http,
             EditInteractionResponse::new()
-                .embed(loading_embed)
-                .components(loading_buttons)
+                .embed(embeds::create_playlist_loading_embed(
+                    "Analizando playlist...",
+                    0,
+                    0,
+                    &[],
+                    playlist_url,
+                ))
+                .components(buttons::MusicControls::create_playlist_loading_controls(None)),
         )
         .await?;
 
-    // Obtener tracks de la playlist
-    let ytdlp_client = crate::sources::YtDlpOptimizedClient::new();
-    match ytdlp_client.get_playlist(playlist_url).await {
-        Ok(tracks) => {
-            if tracks.is_empty() {
-                command
-                    .edit_response(
-                        &ctx.http,
-                        EditInteractionResponse::new()
-                            .embed(embeds::create_error_embed("Playlist Vacía", "La playlist no contiene canciones válidas"))
-                            .components(vec![])
-                    )
-                    .await?;
-                return Ok(());
+    let client = YtDlpOptimizedClient::new();
+    let tracks = client
+        .get_playlist(playlist_url)
+        .await
+        .map_err(|e| BotError::TrackFail(format!("No pude cargar la playlist: {e}")))?;
+
+    if tracks.is_empty() {
+        return Err(BotError::TrackFail(
+            "La playlist no tiene canciones válidas".to_string(),
+        ));
+    }
+
+    let total = tracks.len();
+    let mut added = 0usize;
+    let mut failed = 0usize;
+    let mut recent: Vec<String> = Vec::new();
+    let mut total_duration = Duration::ZERO;
+
+    for (i, track) in tracks.iter().enumerate() {
+        let current = i + 1;
+
+        if current % 5 == 0 || current == total {
+            let progress = EditInteractionResponse::new()
+                .embed(embeds::create_playlist_loading_embed(
+                    "Cargando playlist...",
+                    current,
+                    total,
+                    &recent,
+                    playlist_url,
+                ))
+                .components(buttons::MusicControls::create_playlist_loading_controls(
+                    Some((current, total)),
+                ));
+
+            if let Err(e) = command.edit_response(&ctx.http, progress).await {
+                warn!("No se pudo actualizar el progreso de la playlist: {e}");
             }
-
-            let total_count = tracks.len();
-            let handler = bot.get_voice_handler(guild_id)
-                .ok_or_else(|| anyhow::anyhow!("No hay conexión de voz activa"))?;
-
-            info!("📋 Playlist encontrada con {} canciones, iniciando carga progresiva", total_count);
-
-            // Carga progresiva de canciones
-            let mut added_count = 0;
-            let mut failed_count = 0;
-            let mut loaded_tracks = Vec::new();
-            let mut total_duration = std::time::Duration::new(0, 0);
-
-            for (i, track) in tracks.iter().enumerate() {
-                let current = i + 1;
-                
-                // Actualizar progreso cada 5 canciones o al final
-                if current % 5 == 0 || current == total_count {
-                    let progress_embed = crate::ui::embeds::create_playlist_loading_embed(
-                        "Cargando playlist...",
-                        current,
-                        total_count,
-                        &loaded_tracks,
-                        playlist_url
-                    );
-                    let progress_buttons = crate::ui::buttons::MusicControls::create_playlist_loading_controls(
-                        Some((current, total_count))
-                    );
-                    
-                    if let Err(e) = command
-                        .edit_response(
-                            &ctx.http,
-                            EditInteractionResponse::new()
-                                .embed(progress_embed)
-                                .components(progress_buttons)
-                        )
-                        .await {
-                        warn!("Error actualizando progreso de playlist: {:?}", e);
-                    }
-                }
-
-                // Intentar agregar la canción
-                match bot.player.play(guild_id, track.clone(), handler.clone()).await {
-                    Ok(_) => {
-                        added_count += 1;
-                        loaded_tracks.push(track.title().clone());
-                        if let Some(duration) = track.duration() {
-                            total_duration += duration;
-                        }
-                        
-                        // Limitar historial a últimas 10 canciones
-                        if loaded_tracks.len() > 10 {
-                            loaded_tracks.remove(0);
-                        }
-                    }
-                    Err(e) => {
-                        failed_count += 1;
-                        warn!("Error agregando canción {}: {:?}", track.title(), e);
-                    }
-                }
-
-                // Pequeña pausa para no saturar la API
-                if current % 10 == 0 {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                }
-            }
-
-            // Crear respuesta final con estadísticas completas
-            let final_embed = crate::ui::embeds::create_playlist_completed_embed(
-                "Playlist de YouTube",
-                added_count,
-                total_count,
-                failed_count,
-                if total_duration.as_secs() > 0 { Some(total_duration) } else { None },
-                playlist_url
-            );
-
-            // Botones finales con controles de playlist
-            let final_buttons = if added_count > 0 {
-                crate::ui::buttons::create_playlist_buttons()
-            } else {
-                vec![]
-            };
-
-            command
-                .edit_response(
-                    &ctx.http,
-                    EditInteractionResponse::new()
-                        .embed(final_embed)
-                        .components(final_buttons)
-                )
-                .await?;
-
-            info!("✅ Playlist cargada: {}/{} canciones agregadas exitosamente", added_count, total_count);
         }
-        Err(e) => {
-            tracing::error!("Error cargando playlist: {:?}", e);
-            command
-                .edit_response(
-                    &ctx.http,
-                    EditInteractionResponse::new()
-                        .embed(embeds::create_error_embed("Error", &format!("Error al cargar playlist: {}", e)))
-                        .components(vec![])
-                )
-                .await?;
+
+        match bot.player.play(guild_id, track.clone()).await {
+            Ok(()) => {
+                added += 1;
+                recent.push(track.title());
+                if recent.len() > 10 {
+                    recent.remove(0);
+                }
+                if let Some(duration) = track.duration() {
+                    total_duration += duration;
+                }
+            }
+            Err(e) => {
+                failed += 1;
+                warn!("No se pudo encolar «{}»: {:?}", track.title(), e);
+            }
         }
     }
 
+    let final_embed = embeds::create_playlist_completed_embed(
+        "Playlist de YouTube",
+        added,
+        total,
+        failed,
+        (total_duration > Duration::ZERO).then_some(total_duration),
+        playlist_url,
+    );
+
+    command
+        .edit_response(
+            &ctx.http,
+            EditInteractionResponse::new()
+                .embed(final_embed)
+                .components(if added > 0 {
+                    buttons::create_playlist_buttons()
+                } else {
+                    vec![]
+                }),
+        )
+        .await?;
+
+    info!("Playlist cargada: {}/{} canciones", added, total);
     Ok(())
 }
 
-
-/// Maneja URL directa (intentar como canción individual)
-async fn handle_direct_url_playlist(
+async fn load_direct_url(
     ctx: &Context,
     command: &CommandInteraction,
     bot: &OpenMusicBot,
     guild_id: GuildId,
     url: &str,
-) -> Result<()> {
-    use serenity::builder::EditInteractionResponse;
-    
-    // Intentar agregar como canción individual
-    let track_source = TrackSource::new(
+) -> BotResult<()> {
+    let track = TrackSource::new(
         "Audio desde URL".to_string(),
         url.to_string(),
         SourceType::DirectUrl,
         command.user.id,
     );
 
-    let handler = bot.get_voice_handler(guild_id)
-        .ok_or_else(|| anyhow::anyhow!("No hay conexión de voz activa"))?;
-
-    match bot.player.play(guild_id, track_source, handler).await {
-        Ok(_) => {
-            let embed = embeds::create_success_embed(
-                "🎵 Audio Agregado",
-                "✅ URL directa agregada a la cola"
-            );
-
-            command
-                .edit_response(
-                    &ctx.http,
-                    EditInteractionResponse::new().embed(embed)
-                )
-                .await?;
-        }
-        Err(e) => {
-            command
-                .edit_response(
-                    &ctx.http,
-                    EditInteractionResponse::new()
-                        .embed(embeds::create_error_embed("Error", &format!("No se pudo cargar el audio: {}", e)))
-                )
-                .await?;
-        }
-    }
-
-    Ok(())
-}
-
-async fn handle_health(ctx: &Context, command: CommandInteraction, bot: &OpenMusicBot) -> Result<()> {
-    
-    
-    let health_status = bot.monitoring.perform_health_check().await;
-    let system_metrics = bot.monitoring.get_system_metrics().await;
-    
-    let status_emoji = match health_status {
-        crate::monitoring::HealthStatus::Healthy => "✅",
-        crate::monitoring::HealthStatus::Warning => "⚠️",
-        crate::monitoring::HealthStatus::Critical => "🚨",
-        crate::monitoring::HealthStatus::Unknown => "❓",
-    };
-    
-    let embed = embeds::create_info_embed(
-        &format!("{} Estado de Salud del Bot", status_emoji),
-        &format!(
-            "**Estado**: {:?}\n**Tiempo activo**: {:?}\n**Comandos procesados**: {}\n**Errores**: {}\n**Tasa de error**: {:.2}%",
-            health_status,
-            system_metrics.uptime,
-            system_metrics.total_commands,
-            system_metrics.total_errors,
-            system_metrics.error_rate
-        )
-    );
+    bot.player.play(guild_id, track).await?;
 
     command
-        .create_response(
+        .edit_response(
             &ctx.http,
-            CreateInteractionResponse::Message(
-                CreateInteractionResponseMessage::new()
-                    .embed(embed)
-                    .ephemeral(true),
-            ),
+            EditInteractionResponse::new().embed(embeds::create_success_embed(
+                "Audio agregado",
+                "URL directa agregada a la cola",
+            )),
         )
         .await?;
 
     Ok(())
 }
 
-async fn handle_metrics(ctx: &Context, command: CommandInteraction, bot: &OpenMusicBot) -> Result<()> {
-    let metrics_type = command
-        .data
-        .options
-        .iter()
-        .find(|opt| opt.name == "type")
-        .and_then(|opt| opt.value.as_str())
-        .unwrap_or("performance");
+async fn handle_help(ctx: &Context, command: &CommandInteraction) -> BotResult<()> {
+    let embed = match option_str(command, "command") {
+        Some(cmd) => embeds::create_command_help_embed(cmd),
+        None => embeds::create_help_embed(),
+    };
 
-    match metrics_type {
-        "performance" => {
-            let system_metrics = bot.monitoring.get_system_metrics().await;
-            let embed = embeds::create_info_embed(
-                "📊 Métricas de Rendimiento",
-                &format!(
-                    "**Tiempo activo**: {:?}\n**Comandos totales**: {}\n**Tasa de error**: {:.2}%\n**Estado**: {:?}",
-                    system_metrics.uptime,
-                    system_metrics.total_commands,
-                    system_metrics.error_rate,
-                    system_metrics.health_status
-                )
-            );
-            
-            command
-                .create_response(
-                    &ctx.http,
-                    CreateInteractionResponse::Message(
-                        CreateInteractionResponseMessage::new()
-                            .embed(embed)
-                            .ephemeral(true),
-                    ),
-                )
-                .await?;
-        },
-        "errors" => {
-            let error_report = bot.monitoring.get_error_report(Some(24)).await;
-            let mut description = format!("**Errores en las últimas 24h**: {}\n\n", error_report.total_errors);
-            
-            for category in error_report.categories.iter().take(5) {
-                description.push_str(&format!(
-                    "**{}**: {} errores\n",
-                    category.category,
-                    category.total_count
-                ));
-            }
-            
-            let embed = embeds::create_info_embed("🔍 Reporte de Errores", &description);
-            
-            command
-                .create_response(
-                    &ctx.http,
-                    CreateInteractionResponse::Message(
-                        CreateInteractionResponseMessage::new()
-                            .embed(embed)
-                            .ephemeral(true),
-                    ),
-                )
-                .await?;
-        },
-        _ => {
-            let system_metrics = bot.monitoring.get_system_metrics().await;
-            let embed = embeds::create_info_embed(
-                "📈 Métricas del Sistema",
-                &format!(
-                    "**Tiempo activo**: {:?}\n**Comandos**: {}\n**Errores**: {}\n**Warnings**: {}",
-                    system_metrics.uptime,
-                    system_metrics.total_commands,
-                    system_metrics.total_errors,
-                    system_metrics.total_warnings
-                )
-            );
-            
-            command
-                .create_response(
-                    &ctx.http,
-                    CreateInteractionResponse::Message(
-                        CreateInteractionResponseMessage::new()
-                            .embed(embed)
-                            .ephemeral(true),
-                    ),
-                )
-                .await?;
-        }
-    }
-
-    Ok(())
+    reply_embed(ctx, command, embed, None, true).await
 }
 
+async fn handle_health(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let health = bot.monitoring.perform_health_check().await;
+    let metrics = bot.monitoring.get_system_metrics().await;
 
+    let emoji = match health {
+        crate::monitoring::HealthStatus::Healthy => "",
+        crate::monitoring::HealthStatus::Warning => "",
+        crate::monitoring::HealthStatus::Critical => "",
+        crate::monitoring::HealthStatus::Unknown => "",
+    };
 
-/// Selecciona el mejor resultado basándose en heurísticas de relevancia
-#[allow(dead_code)]
-fn select_best_result(results: &[TrackSource], query: &str) -> TrackSource {
-    if results.is_empty() {
-        panic!("No se pueden seleccionar resultados de una lista vacía");
+    let embed = embeds::create_info_embed(
+        &format!("{emoji} Estado de salud del bot"),
+        &format!(
+            "**Estado**: {:?}\n**Tiempo activo**: {:?}\n**Comandos procesados**: {}\n**Errores**: {}\n**Tasa de error**: {:.2}%",
+            health, metrics.uptime, metrics.total_commands, metrics.total_errors, metrics.error_rate
+        ),
+    );
+
+    reply_embed(ctx, command, embed, None, true).await
+}
+
+async fn handle_metrics(
+    ctx: &Context,
+    command: &CommandInteraction,
+    bot: &OpenMusicBot,
+) -> BotResult<()> {
+    let embed = match option_str(command, "type").unwrap_or("performance") {
+        "errors" => {
+            let report = bot.monitoring.get_error_report(Some(24)).await;
+            let mut description =
+                format!("**Errores en las últimas 24 h**: {}\n\n", report.total_errors);
+            for category in report.categories.iter().take(5) {
+                description.push_str(&format!(
+                    "**{}**: {} errores\n",
+                    category.category, category.total_count
+                ));
+            }
+            embeds::create_info_embed("Reporte de errores", &description)
+        }
+        "performance" => {
+            let metrics = bot.monitoring.get_system_metrics().await;
+            embeds::create_info_embed(
+                "Métricas de rendimiento",
+                &format!(
+                    "**Tiempo activo**: {:?}\n**Comandos totales**: {}\n**Tasa de error**: {:.2}%\n**Estado**: {:?}",
+                    metrics.uptime, metrics.total_commands, metrics.error_rate, metrics.health_status
+                ),
+            )
+        }
+        _ => {
+            let metrics = bot.monitoring.get_system_metrics().await;
+            embeds::create_info_embed(
+                "Métricas del sistema",
+                &format!(
+                    "**Tiempo activo**: {:?}\n**Comandos**: {}\n**Errores**: {}\n**Avisos**: {}",
+                    metrics.uptime,
+                    metrics.total_commands,
+                    metrics.total_errors,
+                    metrics.total_warnings
+                ),
+            )
+        }
+    };
+
+    reply_embed(ctx, command, embed, None, true).await
+}
+
+// ===== UTILIDADES =====
+
+/// Acepta `90`, `1:30` y `1:30:00`.
+fn parse_time_string(time_str: &str) -> BotResult<u64> {
+    let invalid = || BotError::Other("Formato de tiempo inválido. Usá `seg`, `min:seg` o `hora:min:seg`");
+
+    let parts: Vec<u64> = time_str
+        .split(':')
+        .map(|p| p.trim().parse::<u64>())
+        .collect::<Result<_, _>>()
+        .map_err(|_| invalid())?;
+
+    match parts.as_slice() {
+        [s] => Ok(*s),
+        [m, s] => Ok(m * 60 + s),
+        [h, m, s] => Ok(h * 3600 + m * 60 + s),
+        _ => Err(invalid()),
     }
-    
-    if results.len() == 1 {
-        return results[0].clone();
+}
+
+fn format_duration(duration: Duration) -> String {
+    let total = duration.as_secs();
+    let (hours, minutes, seconds) = (total / 3600, (total % 3600) / 60, total % 60);
+
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes}:{seconds:02}")
     }
-    
-    let query_lower = query.to_lowercase();
-    let mut best_result = &results[0];
-    let mut best_score = 0.0;
-    
-    for result in results {
-        let mut score = 0.0;
-        let title_lower = result.title().to_lowercase();
-        
-        // Factor 1: Coincidencia exacta en el título (peso alto)
-        if title_lower.contains(&query_lower) {
-            score += 100.0;
-        }
-        
-        // Factor 2: Similitud de palabras clave
-        let query_words: Vec<&str> = query_lower.split_whitespace().collect();
-        let title_words: Vec<&str> = title_lower.split_whitespace().collect();
-        
-        for query_word in &query_words {
-            if query_word.len() > 2 { // Solo palabras significativas
-                for title_word in &title_words {
-                    if title_word.contains(query_word) {
-                        score += 50.0;
-                    }
-                }
-            }
-        }
-        
-        // Factor 3: Penalizar ciertos tipos de contenido
-        let title_penalties = [
-            ("remix", -20.0),
-            ("cover", -15.0),
-            ("karaoke", -30.0),
-            ("instrumental", -25.0),
-            ("live", -10.0),
-            ("8d", -20.0),
-            ("slowed", -15.0),
-            ("reverb", -15.0),
-            ("speed", -20.0),
-            ("nightcore", -25.0),
-        ];
-        
-        for (penalty_word, penalty_value) in &title_penalties {
-            if title_lower.contains(penalty_word) {
-                score += penalty_value;
-            }
-        }
-        
-        // Factor 4: Preferir contenido oficial
-        let official_bonus = [
-            ("official", 30.0),
-            ("music video", 25.0),
-            ("video oficial", 30.0),
-            ("official music", 35.0),
-        ];
-        
-        for (bonus_word, bonus_value) in &official_bonus {
-            if title_lower.contains(bonus_word) {
-                score += bonus_value;
-            }
-        }
-        
-        // Factor 5: Preferir duraciones normales para canciones (2-8 minutos)
-        if let Some(duration) = result.duration() {
-            let duration_secs = duration.as_secs();
-            if duration_secs >= 120 && duration_secs <= 480 { // 2-8 minutos
-                score += 10.0;
-            } else if duration_secs < 60 || duration_secs > 600 { // Muy corto o muy largo
-                score -= 15.0;
-            }
-        }
-        
-        // Factor 6: Bonus por artista conocido (si coincide con la búsqueda)
-        if let Some(artist) = result.artist() {
-            let artist_lower = artist.to_lowercase();
-            if query_lower.contains(&artist_lower) || artist_lower.contains(&query_lower) {
-                score += 40.0;
-            }
-        }
-        
-        // Actualizar el mejor resultado si este tiene mejor score
-        if score > best_score {
-            best_score = score;
-            best_result = result;
-        }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parsea_formatos_de_tiempo() {
+        assert_eq!(parse_time_string("90").unwrap(), 90);
+        assert_eq!(parse_time_string("1:30").unwrap(), 90);
+        assert_eq!(parse_time_string("1:30:00").unwrap(), 5400);
+        assert!(parse_time_string("abc").is_err());
+        assert!(parse_time_string("1:2:3:4").is_err());
     }
-    
-    best_result.clone()
+
+    #[test]
+    fn formatea_duraciones() {
+        assert_eq!(format_duration(Duration::from_secs(90)), "1:30");
+        assert_eq!(format_duration(Duration::from_secs(5400)), "1:30:00");
+    }
 }

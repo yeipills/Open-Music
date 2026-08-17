@@ -1,400 +1,233 @@
 //! # Bot Module
 //!
-//! Main Discord bot implementation for Open Music Bot.
+//! Implementación del bot de Discord.
 //!
-//! This module contains the core bot logic, including:
-//! - Command registration and handling
-//! - Voice connection management
-//! - Event handling (ready, interactions, voice state updates)
-//! - Background maintenance tasks
+//! ## Gestión de la conexión de voz
 //!
-//! ## Architecture
-//!
-//! The bot is built around the [`OpenMusicBot`] struct which implements
-//! Serenity's [`EventHandler`] trait. It manages:
-//!
-//! - Audio playback through [`AudioPlayer`]
-//! - Metadata caching via [`MusicCache`]
-//! - Persistent storage with [`JsonStorage`]
-//! - Voice connections per guild
-//!
-//! ## Example
-//!
-//! ```rust,no_run
-//! use open_music::bot::OpenMusicBot;
-//! use open_music::config::Config;
-//!
-//! let config = Config::load()?;
-//! let storage = Arc::new(tokio::sync::Mutex::new(JsonStorage::new(config.data_dir.clone()).await?));
-//! let cache = Arc::new(MusicCache::new(config.cache_size));
-//! let bot = OpenMusicBot::new(config, storage, cache);
-//! ```
+//! No existe ningún mapa propio de conexiones: **songbird es la única fuente de
+//! verdad**. Antes había un `DashMap<GuildId, Arc<Mutex<Call>>>` que había que
+//! mantener sincronizado a mano, y bastaba con que alguien echara al bot del
+//! canal desde Discord para que el mapa dijera "conectado" y todos los comandos
+//! fallaran en silencio. Ahora la conexión se consulta siempre con
+//! `manager.get(guild_id)`, y `voice_state_update` limpia el estado en cuanto el
+//! bot deja un canal, sea quien sea quien lo haya sacado.
 
 use anyhow::Result;
-use dashmap::DashMap;
 use serenity::{
     all::{ChannelId, Context, EventHandler, GuildId, Interaction, Ready, VoiceState},
     async_trait,
+    gateway::ActivityData,
 };
-use std::sync::Arc;
+use songbird::{Event, Songbird, TrackEvent};
+use std::sync::{atomic::AtomicUsize, Arc};
+use std::time::Duration;
 use tracing::{error, info, warn};
 
 pub mod commands;
-pub mod events;
+pub mod connection;
 pub mod handlers;
 pub mod search;
 
-use crate::{audio::player::AudioPlayer, cache::MusicCache, config::Config, storage::JsonStorage, monitoring::MonitoringSystem};
+use crate::{
+    audio::{
+        events::{DriverDisconnectHandler, IdleHandler, TrackEndHandler, TrackPlayHandler},
+        player::AudioPlayer,
+    },
+    cache::MusicCache,
+    config::Config,
+    monitoring::MonitoringSystem,
+    storage::JsonStorage,
+};
 
-/// Main Discord bot handler for Open Music Bot.
-///
-/// This struct implements Serenity's [`EventHandler`] trait and manages all bot functionality
-/// including command handling, voice connections, and audio playback.
-///
-/// ## Fields
-///
-/// - `config`: Bot configuration (tokens, limits, features)
-/// - `storage`: Persistent JSON storage for settings and data
-/// - `cache`: LRU cache for track metadata and audio data
-/// - `player`: Audio player instance for music playback
-/// - `voice_handlers`: Per-guild voice connection handlers
-///
-/// ## Thread Safety
-///
-/// All fields are wrapped in appropriate synchronization primitives:
-/// - [`Arc`] for shared ownership
-/// - [`tokio::sync::Mutex`] for async-safe exclusive access
-/// - [`DashMap`] for concurrent map operations
 pub struct OpenMusicBot {
-    /// Bot configuration loaded from environment variables
     config: Arc<Config>,
-    /// JSON-based persistent storage (server settings, playlists, etc.)
     #[allow(dead_code)]
     pub storage: Arc<tokio::sync::Mutex<JsonStorage>>,
-    /// LRU cache for track metadata and audio data
     cache: Arc<MusicCache>,
-    /// Audio player for music playback and queue management
     pub player: Arc<AudioPlayer>,
-    /// Voice connection handlers per Discord guild
-    voice_handlers: DashMap<GuildId, Arc<tokio::sync::Mutex<songbird::Call>>>,
-    /// Sistema de monitoreo para métricas y logs
     pub monitoring: Arc<MonitoringSystem>,
 }
 
 impl OpenMusicBot {
-    /// Creates a new instance of the Open Music Bot.
-    ///
-    /// # Arguments
-    ///
-    /// * `config` - Bot configuration (Discord tokens, audio settings, etc.)
-    /// * `storage` - Persistent storage for server settings and data
-    /// * `cache` - LRU cache for track metadata and performance optimization
-    ///
-    /// # Returns
-    ///
-    /// A new [`OpenMusicBot`] instance ready to handle Discord events.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use std::sync::Arc;
-    /// # use open_music::{bot::OpenMusicBot, config::Config, cache::MusicCache, storage::JsonStorage};
-    /// # async fn example() -> anyhow::Result<()> {
-    /// let config = Config::load()?;
-    /// let storage = Arc::new(tokio::sync::Mutex::new(
-    ///     JsonStorage::new(config.data_dir.clone()).await?
-    /// ));
-    /// let cache = Arc::new(MusicCache::new(config.cache_size));
-    /// 
-    /// let bot = OpenMusicBot::new(config, storage, cache);
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn new(config: Config, storage: Arc<tokio::sync::Mutex<JsonStorage>>, cache: Arc<MusicCache>, monitoring: Arc<MonitoringSystem>) -> Self {
+    pub fn new(
+        config: Config,
+        storage: Arc<tokio::sync::Mutex<JsonStorage>>,
+        cache: Arc<MusicCache>,
+        monitoring: Arc<MonitoringSystem>,
+        manager: Arc<Songbird>,
+    ) -> Self {
         let config = Arc::new(config);
-        let player = Arc::new(AudioPlayer::new(config.default_volume));
+        let player = Arc::new(AudioPlayer::new(config.default_volume, manager));
 
         Self {
             config,
             storage,
             cache,
             player,
-            voice_handlers: DashMap::new(),
             monitoring,
         }
     }
 
-    /// Registers slash commands with Discord.
-    ///
-    /// Commands can be registered globally (visible in all servers) or per-guild
-    /// (faster updates, useful for development). The registration strategy is
-    /// determined by the `guild_id` configuration option.
-    ///
-    /// # Arguments
-    ///
-    /// * `ctx` - Discord context for API operations
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` - Commands registered successfully
-    /// * `Err(anyhow::Error)` - Registration failed (permissions, network, etc.)
-    ///
-    /// # Command Registration Timing
-    ///
-    /// - **Guild commands**: ~1 second propagation time
-    /// - **Global commands**: ~1 hour propagation time
-    ///
-    /// # Required Permissions
-    ///
-    /// The bot must have `applications.commands` permission in the target guild(s).
+    /// Registra los comandos slash (globales o de una guild concreta).
     async fn register_commands(&self, ctx: &Context) -> Result<()> {
-        info!("📝 Registrando comandos slash...");
+        info!("Registrando comandos slash...");
 
-        // Verificar permisos del bot
-        let bot_id = ctx.cache.current_user().id;
-        info!("🤖 Bot ID: {}", bot_id);
-        info!("🔧 Application ID: {}", self.config.application_id);
-
-        // Registrar comandos globales o por guild según configuración
         match self.config.guild_id {
             Some(guild_id) => {
-                info!("🏠 Registrando comandos para guild específica: {}", guild_id);
                 let guild_id = GuildId::from(guild_id);
-                
-                // Verificar que el bot esté en la guild
                 if !ctx.cache.guilds().contains(&guild_id) {
-                    warn!("⚠️ El bot no está en la guild especificada: {}", guild_id);
-                    return Ok(()); // No fallar, pero no registrar comandos
+                    warn!("El bot no está en la guild configurada: {}", guild_id);
+                    return Ok(());
                 }
-                
-                commands::register_guild_commands(ctx, guild_id).await
-                    .map_err(|e| {
-                        error!("❌ Error registrando comandos de guild: {:?}", e);
-                        anyhow::anyhow!("No se pudieron registrar comandos de guild. Verifica que el bot tenga permisos de 'applications.commands' en la guild.")
-                    })?;
-                info!("✅ Comandos de guild registrados para: {}", guild_id);
-            },
+                commands::register_guild_commands(ctx, guild_id).await?;
+                info!("Comandos registrados en la guild {}", guild_id);
+            }
             None => {
-                info!("🌐 Registrando comandos globalmente");
-                commands::register_global_commands(ctx).await
-                    .map_err(|e| {
-                        error!("❌ Error registrando comandos globales: {:?}", e);
-                        anyhow::anyhow!("No se pudieron registrar comandos globales. Verifica que el bot tenga permisos de 'applications.commands'.")
-                    })?;
-                info!("✅ Comandos globales registrados");
+                commands::register_global_commands(ctx).await?;
+                info!("Comandos globales registrados");
             }
         }
 
         Ok(())
     }
 
-    /// Connects the bot to a voice channel.
+    /// Conexión de voz activa de la guild, consultada a songbird.
+    pub fn get_voice_handler(
+        &self,
+        guild_id: GuildId,
+    ) -> Option<Arc<tokio::sync::Mutex<songbird::Call>>> {
+        self.player.call(guild_id)
+    }
+
+    /// Entra al canal de voz y deja registrados los handlers de la sesión.
     ///
-    /// Establishes a voice connection using Songbird and stores the handler
-    /// for future audio operations. The connection is automatically managed
-    /// and will be cleaned up when the bot is disconnected.
-    ///
-    /// # Arguments
-    ///
-    /// * `ctx` - Discord context for API operations
-    /// * `guild_id` - ID of the Discord server
-    /// * `channel_id` - ID of the voice channel to join
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` - Successfully connected to voice channel
-    /// * `Err(anyhow::Error)` - Connection failed (permissions, channel full, etc.)
-    ///
-    /// # Required Permissions
-    ///
-    /// - `Connect` - To join the voice channel
-    /// - `Speak` - To play audio in the channel
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use serenity::all::{GuildId, ChannelId};
-    /// # async fn example(bot: &OpenMusicBot, ctx: &Context) -> anyhow::Result<()> {
-    /// let guild_id = GuildId::from(123456789);
-    /// let channel_id = ChannelId::from(987654321);
-    /// 
-    /// bot.join_voice_channel(ctx, guild_id, channel_id).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// Los eventos se registran **aquí y sólo aquí**, después de un
+    /// `remove_all_global_events()`: si el bot vuelve a entrar a un canal, no se
+    /// acumulan handlers duplicados de la conexión anterior (cada duplicado
+    /// significaba un aviso repetido y un contador de inactividad de más).
     pub async fn join_voice_channel(
         &self,
         ctx: &Context,
         guild_id: GuildId,
         channel_id: ChannelId,
+        text_channel_id: ChannelId,
     ) -> Result<()> {
-        let manager = songbird::get(ctx)
-            .await
-            .ok_or_else(|| anyhow::anyhow!("Songbird no inicializado"))?;
+        let manager = self.player.manager();
 
-        let handler = manager.join(guild_id, channel_id).await;
+        // Si queda un `Call` de una sesión muerta, `join` puede agotar los 10 s de
+        // timeout del gateway antes de fallar. En ese caso se descarta y se
+        // reintenta una vez, que es lo que de verdad repara la conexión.
+        let call = match manager.join(guild_id, channel_id).await {
+            Ok(call) => call,
+            Err(first_error) => {
+                warn!("Reintento de conexión a voz en guild {guild_id}: {first_error}");
+                manager.remove(guild_id).await.ok();
+                manager
+                    .join(guild_id, channel_id)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("No pude entrar al canal de voz: {e}"))?
+            }
+        };
 
-        match handler {
-            Ok(connection_info) => {
-                // Fijar el bitrate del encoder Opus (calidad). Call deref-ea a Driver.
-                // Configurable vía OPUS_BITRATE; tope real = bitrate del canal de voz.
-                {
-                    let mut call = connection_info.lock().await;
-                    call.set_bitrate(songbird::driver::Bitrate::Bits(
-                        self.config.opus_bitrate as i32,
-                    ));
-                }
+        let idle_limit = {
+            let storage = self.storage.lock().await;
+            storage.get_auto_leave_timeout(guild_id.get()) as usize
+        };
 
-                // Guardar handler para uso futuro
-                self.voice_handlers
-                    .insert(guild_id, connection_info.clone());
+        {
+            let mut handler = call.lock().await;
 
-                info!(
-                    "🔊 Conectado al canal de voz en guild {} (Opus {} kbps)",
+            // Bitrate del encoder Opus (el tope real lo fija el canal de voz).
+            handler.set_bitrate(songbird::driver::Bitrate::Bits(
+                self.config.opus_bitrate as i32,
+            ));
+
+            handler.remove_all_global_events();
+
+            handler.add_global_event(
+                Event::Track(TrackEvent::Play),
+                TrackPlayHandler {
                     guild_id,
-                    self.config.opus_bitrate / 1000
-                );
-                Ok(())
-            }
-            Err(e) => {
-                error!("Error al obtener handler de voz: {:?}", e);
-                Err(anyhow::anyhow!("Error al conectar al canal de voz"))
-            }
+                    player: Arc::downgrade(&self.player),
+                },
+            );
+
+            handler.add_global_event(
+                Event::Track(TrackEvent::End),
+                TrackEndHandler {
+                    guild_id,
+                    player: Arc::downgrade(&self.player),
+                },
+            );
+
+            handler.add_global_event(
+                Event::Core(songbird::CoreEvent::DriverDisconnect),
+                DriverDisconnectHandler {
+                    guild_id,
+                    manager: manager.clone(),
+                    player: Arc::downgrade(&self.player),
+                },
+            );
+
+            handler.add_global_event(
+                Event::Periodic(Duration::from_secs(1), None),
+                IdleHandler {
+                    guild_id,
+                    http: ctx.http.clone(),
+                    manager: manager.clone(),
+                    channel_id: text_channel_id,
+                    player: Arc::downgrade(&self.player),
+                    limit: idle_limit,
+                    count: Arc::new(AtomicUsize::new(0)),
+                },
+            );
         }
-    }
 
-    /// Disconnects the bot from a voice channel.
-    ///
-    /// Cleanly disconnects from the voice channel, stops any ongoing audio playback,
-    /// and removes the voice handler from the internal storage.
-    ///
-    /// # Arguments
-    ///
-    /// * `ctx` - Discord context for API operations
-    /// * `guild_id` - ID of the Discord server to disconnect from
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` - Successfully disconnected
-    /// * `Err(anyhow::Error)` - Disconnection failed
-    ///
-    /// # Side Effects
-    ///
-    /// - Stops any currently playing audio
-    /// - Clears the audio queue for the guild
-    /// - Removes the voice handler from memory
-    pub async fn leave_voice_channel(&self, ctx: &Context, guild_id: GuildId) -> Result<()> {
-        let manager = songbird::get(ctx)
-            .await
-            .ok_or_else(|| anyhow::anyhow!("Songbird no inicializado"))?;
-
-        manager.remove(guild_id).await?;
-        self.voice_handlers.remove(&guild_id);
-
-        info!("👋 Desconectado del canal de voz en guild {}", guild_id);
+        info!(
+            "Conectado a voz en guild {} (Opus {} kbps, inactividad {}s)",
+            guild_id,
+            self.config.opus_bitrate / 1000,
+            idle_limit
+        );
         Ok(())
     }
 
-    /// Retrieves the voice handler for a guild.
-    ///
-    /// Returns the Songbird call handler for the specified guild, which can be used
-    /// for audio operations like playing, pausing, and queue management.
-    ///
-    /// # Arguments
-    ///
-    /// * `guild_id` - ID of the Discord server
-    ///
-    /// # Returns
-    ///
-    /// * `Some(handler)` - Voice handler exists for the guild
-    /// * `None` - No active voice connection for the guild
-    ///
-    /// # Usage
-    ///
-    /// ```rust,no_run
-    /// # use serenity::all::GuildId;
-    /// # async fn example(bot: &OpenMusicBot) {
-    /// let guild_id = GuildId::from(123456789);
-    /// 
-    /// if let Some(handler) = bot.get_voice_handler(guild_id) {
-    ///     let handler_lock = handler.lock().await;
-    ///     // Use handler for audio operations
-    /// }
-    /// # }
-    /// ```
-    pub fn get_voice_handler(
-        &self,
-        guild_id: GuildId,
-    ) -> Option<Arc<tokio::sync::Mutex<songbird::Call>>> {
-        self.voice_handlers.get(&guild_id).map(|h| h.clone())
+    /// Sale del canal de voz y olvida el estado de la guild.
+    pub async fn leave_voice_channel(&self, _ctx: &Context, guild_id: GuildId) -> Result<()> {
+        self.player.manager().remove(guild_id).await.ok();
+        self.player.forget_guild(guild_id);
+
+        info!("Desconectado de voz en guild {}", guild_id);
+        Ok(())
     }
 }
 
 #[async_trait]
 impl EventHandler for OpenMusicBot {
-    /// Called when the bot is ready and connected to Discord.
-    ///
-    /// This event is triggered after successful authentication and initial data loading.
-    /// It performs initial setup including command registration and starting background tasks.
-    ///
-    /// # Arguments
-    ///
-    /// * `ctx` - Discord context for API operations
-    /// * `ready` - Information about the bot and connected guilds
-    ///
-    /// # Setup Tasks
-    ///
-    /// 1. Register slash commands (global or per-guild)
-    /// 2. Set bot activity status
-    /// 3. Start background maintenance tasks
-    /// 4. Log connection information
     async fn ready(&self, ctx: Context, ready: Ready) {
-        info!("🤖 {} está en línea!", ready.user.name);
-        info!("📊 Conectado a {} servidores", ready.guilds.len());
+        info!("{} está en línea!", ready.user.name);
+        info!("Conectado a {} servidores", ready.guilds.len());
 
-        // Registrar comandos
         if let Err(e) = self.register_commands(&ctx).await {
             error!("Error al registrar comandos: {:?}", e);
         }
 
-        // Establecer estado del bot
-        // ctx.set_activity(Some(Activity::playing("/play")));
+        ctx.set_activity(Some(ActivityData::listening("/play")));
 
-        // Iniciar tareas de mantenimiento
         let config = self.config.clone();
         let cache = self.cache.clone();
-
         tokio::spawn(async move {
             maintenance_tasks(config, cache).await;
         });
     }
 
-    /// Handles incoming Discord interactions.
-    ///
-    /// Processes different types of interactions including:
-    /// - Slash commands (`/play`, `/pause`, etc.)
-    /// - Button clicks (play/pause controls, queue navigation)
-    /// - Select menu interactions (equalizer presets, etc.)
-    ///
-    /// # Arguments
-    ///
-    /// * `ctx` - Discord context for API operations
-    /// * `interaction` - The interaction to process
-    ///
-    /// # Error Handling
-    ///
-    /// Errors are logged but don't crash the bot. Failed interactions may
-    /// result in "This interaction failed" messages to users.
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         match interaction {
-            Interaction::Command(command_interaction) => {
-                if let Err(e) = handlers::handle_command(&ctx, command_interaction, self).await {
-                    error!("Error manejando comando: {:?}", e);
-                }
+            Interaction::Command(command) => {
+                handlers::dispatch_command(&ctx, command, self).await;
             }
-            Interaction::Component(component_interaction) => {
-                if let Err(e) = handlers::handle_component(&ctx, component_interaction, self).await
-                {
+            Interaction::Component(component) => {
+                if let Err(e) = handlers::handle_component(&ctx, component, self).await {
                     error!("Error manejando componente: {:?}", e);
                 }
             }
@@ -402,175 +235,137 @@ impl EventHandler for OpenMusicBot {
         }
     }
 
-    /// Handles voice state updates for users and the bot.
+    /// Reacciona a los cambios de estado de voz.
     ///
-    /// Monitors voice channel changes to implement features like:
-    /// - Auto-disconnect when bot is alone in channel
-    /// - Cleanup when bot is manually disconnected
-    /// - Pause/resume based on channel activity
+    /// Dos casos, ambos del propio bot:
     ///
-    /// # Arguments
+    /// - **Salió de un canal** (lo echaron, lo movieron o se fue): se libera la
+    ///   conexión en songbird y se olvida el estado de la guild. Sin esto queda
+    ///   un `Call` fantasma que hace fallar todo comando posterior.
+    /// - **Entró a un canal**: se auto-ensordece, que es lo educado y ahorra
+    ///   ancho de banda de recepción.
     ///
-    /// * `ctx` - Discord context for API operations  
-    /// * `old` - Previous voice state (if any)
-    /// * `new` - New voice state
-    ///
-    /// # Behaviors
-    ///
-    /// - **Bot disconnected**: Cleans up voice handlers and stops playback
-    /// - **Bot alone**: Schedules auto-disconnect after timeout
-    /// - **Users join/leave**: Updates auto-disconnect logic
+    /// Además, si al bot lo dejan solo en el canal se programa la salida; el
+    /// caso de "nadie pone música" lo cubre el [`IdleHandler`].
     async fn voice_state_update(&self, ctx: Context, old: Option<VoiceState>, new: VoiceState) {
-        // Detectar si el bot fue desconectado
-        let current_user_id = ctx.cache.current_user().id;
-        if new.user_id == current_user_id {
-            if old.is_some() && new.channel_id.is_none() {
-                // Bot fue desconectado
-                if let Some(guild_id) = new.guild_id {
-                    info!("🔌 Bot desconectado en guild {}", guild_id);
+        let bot_id = ctx.cache.current_user().id;
 
-                    // Limpiar estado
-                    self.voice_handlers.remove(&guild_id);
+        if new.user_id == bot_id {
+            let Some(guild_id) = new.guild_id else {
+                return;
+            };
 
-                    if let Err(e) = self.player.stop(guild_id).await {
-                        error!("Error al detener reproducción: {:?}", e);
+            match new.channel_id {
+                Some(_) => {
+                    if !new.deaf {
+                        let edit = serenity::builder::EditMember::new().deafen(true);
+                        if let Err(e) = guild_id.edit_member(&ctx.http, bot_id, edit).await {
+                            warn!("No se pudo auto-ensordecer: {e}");
+                        }
                     }
                 }
-            }
-        }
-
-        // Auto-desconectar si el bot está solo en el canal
-        if let Some(guild_id) = new.guild_id {
-            if let Some(handler) = self.get_voice_handler(guild_id) {
-                // Extraer toda la información del cache ANTES de cualquier await
-                let (is_alone, serenity_channel_id) = {
-                    let handler_lock = handler.lock().await;
-                    if let Some(channel_id) = handler_lock.current_channel() {
-                        let serenity_channel_id = ChannelId::from(channel_id.0);
-                        
-                        // Obtener member_count sin guardar CacheRef
-                        let member_count = ctx.cache.guild(guild_id)
-                            .and_then(|guild| {
-                                guild.channels.get(&serenity_channel_id).and_then(|channel| {
-                                    channel.members(&ctx.cache).ok().map(|m| m.len())
-                                })
-                            })
-                            .unwrap_or(0);
-                        
-                        (member_count <= 1, Some(serenity_channel_id))
-                    } else {
-                        (false, None)
-                    }
-                };
-                
-                if is_alone {
-                    // Obtener timeout de configuración
-                    let timeout_secs = {
-                        let storage = self.storage.lock().await;
-                        storage.get_auto_leave_timeout(guild_id.get())
-                    };
-
-                    info!(
-                        "🚪 Bot solo en canal, auto-desconexión en {} segundos (guild {})",
-                        timeout_secs, guild_id
-                    );
-                    
-                    // Crear referencias clonadas para el spawn
-                    let storage_clone = self.storage.clone();
-                    let player_clone = self.player.clone();
-                    let voice_handlers_clone = self.voice_handlers.clone();
-                    let ctx_clone = ctx.clone();
-                    let channel_id_for_check = serenity_channel_id;
-                    
-                    tokio::spawn(async move {
-                        // Esperar el timeout configurado
-                        tokio::time::sleep(tokio::time::Duration::from_secs(timeout_secs)).await;
-                        
-                        // Verificar si el auto_leave_empty está habilitado
-                        let should_leave = {
-                            let storage = storage_clone.lock().await;
-                            storage.get_auto_leave_empty(guild_id.get())
-                        };
-                        
-                        if !should_leave {
-                            return;
-                        }
-                        
-                        // Verificar si todavía estamos solos
-                        let still_alone = channel_id_for_check.map(|ch_id| {
-                            ctx_clone.cache.guild(guild_id)
-                                .and_then(|guild| {
-                                    guild.channels.get(&ch_id).and_then(|channel| {
-                                        channel.members(&ctx_clone.cache).ok().map(|m| m.len() <= 1)
-                                    })
-                                })
-                                .unwrap_or(false)
-                        }).unwrap_or(false);
-                        
-                        if still_alone {
-                            // Desconectar
-                            if let Err(e) = player_clone.stop(guild_id).await {
-                                warn!("Error deteniendo reproducción: {:?}", e);
-                            }
-                            
-                            voice_handlers_clone.remove(&guild_id);
-                            
-                            if let Some(manager) = songbird::get(&ctx_clone).await {
-                                if let Err(e) = manager.remove(guild_id).await {
-                                    warn!("Error desconectando: {:?}", e);
-                                }
-                            }
-                            
-                            info!("👋 Auto-desconectado por inactividad (guild {})", guild_id);
-                        }
-                    });
+                None => {
+                    info!("El bot dejó el canal de voz en guild {}", guild_id);
+                    self.player.manager().remove(guild_id).await.ok();
+                    self.player.forget_guild(guild_id);
                 }
             }
+            return;
         }
+
+        // Un usuario se movió: comprobar si el bot quedó solo.
+        let Some(guild_id) = new.guild_id.or_else(|| old.as_ref().and_then(|o| o.guild_id)) else {
+            return;
+        };
+        self.check_alone_in_channel(&ctx, guild_id).await;
     }
 }
 
-/// Runs periodic maintenance tasks in the background.
-///
-/// Performs housekeeping operations to keep the bot running efficiently:
-/// - Cache cleanup (removes expired entries)
-/// - yt-dlp updates (ensures latest video extraction)
-/// - Memory optimization
-/// - Performance monitoring
-///
-/// # Arguments
-///
-/// * `_config` - Bot configuration (currently unused but reserved for future use)
-/// * `cache` - Music cache to clean up
-///
-/// # Schedule
-///
-/// Runs every hour (3600 seconds) in an infinite loop.
-///
-/// # Tasks Performed
-///
-/// 1. **Cache Cleanup**: Removes expired metadata and audio data
-/// 2. **yt-dlp Update**: Updates YouTube extractor for compatibility
-/// 3. **Memory Stats**: Logs memory usage information
-///
-/// # Error Handling
-///
-/// Individual task failures are logged as warnings but don't stop the maintenance cycle.
+impl OpenMusicBot {
+    /// Si el bot quedó solo en su canal, programa la desconexión.
+    ///
+    /// El temporizador vuelve a comprobar la soledad antes de irse, así que si
+    /// alguien entra mientras tanto no pasa nada.
+    async fn check_alone_in_channel(&self, ctx: &Context, guild_id: GuildId) {
+        let Some(call) = self.player.call(guild_id) else {
+            return;
+        };
+        let Some(bot_channel) = call.lock().await.current_channel() else {
+            return;
+        };
+        let bot_channel = ChannelId::from(bot_channel.0);
+
+        if !is_alone(ctx, guild_id, bot_channel) {
+            return;
+        }
+
+        let (timeout_secs, enabled) = {
+            let storage = self.storage.lock().await;
+            (
+                storage.get_auto_leave_timeout(guild_id.get()),
+                storage.get_auto_leave_empty(guild_id.get()),
+            )
+        };
+        if !enabled {
+            return;
+        }
+
+        info!(
+            "Bot solo en el canal, saldré en {}s si nadie vuelve (guild {})",
+            timeout_secs, guild_id
+        );
+
+        let ctx = ctx.clone();
+        let player = self.player.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(timeout_secs)).await;
+
+            // Puede haber vuelto gente, o el bot haber cambiado de canal.
+            let still_here = player
+                .call(guild_id)
+                .map(|c| c.try_lock().map(|c| c.current_channel().is_some()).unwrap_or(true))
+                .unwrap_or(false);
+
+            if !still_here || !is_alone(&ctx, guild_id, bot_channel) {
+                return;
+            }
+
+            player.manager().remove(guild_id).await.ok();
+            player.forget_guild(guild_id);
+            info!("Salí del canal: me quedé solo (guild {})", guild_id);
+        });
+    }
+}
+
+/// `true` si en el canal no queda nadie más que el bot.
+fn is_alone(ctx: &Context, guild_id: GuildId, channel_id: ChannelId) -> bool {
+    ctx.cache
+        .guild(guild_id)
+        .map(|guild| {
+            guild
+                .voice_states
+                .values()
+                .filter(|state| state.channel_id == Some(channel_id))
+                .filter(|state| state.user_id != ctx.cache.current_user().id)
+                .count()
+                == 0
+        })
+        .unwrap_or(false)
+}
+
+/// Mantenimiento periódico: limpieza de caché y verificación de dependencias.
 async fn maintenance_tasks(_config: Arc<Config>, cache: Arc<MusicCache>) {
-    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600)); // Cada hora
+    let mut interval = tokio::time::interval(Duration::from_secs(3600));
 
     loop {
         interval.tick().await;
-
-        // Limpiar caché viejo
         cache.cleanup_old_entries();
 
-        // Verificar dependencias yt-dlp
         let source_manager = crate::sources::SourceManager::new();
         if let Err(e) = source_manager.verify_dependencies().await {
             warn!("Error verificando dependencias: {:?}", e);
         }
 
-        info!("🧹 Tareas de mantenimiento completadas");
+        info!("Tareas de mantenimiento completadas");
     }
 }

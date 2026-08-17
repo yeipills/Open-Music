@@ -37,9 +37,9 @@ pub async fn register_global_commands(ctx: &Context) -> Result<()> {
     ];
 
 
-    for command in commands {
-        ctx.http.create_global_command(&command).await?;
-    }
+    // Un único `set` en vez de un `create` por comando: es una sola llamada HTTP
+    // y además **borra** de Discord los comandos que ya no existen en el código.
+    serenity::model::application::Command::set_global_commands(&ctx.http, commands).await?;
 
     Ok(())
 }
@@ -103,13 +103,6 @@ fn search_command() -> CreateCommand {
         .add_option(
             CreateCommandOption::new(CommandOptionType::String, "query", "Término de búsqueda")
                 .required(true),
-        )
-        .add_option(
-            CreateCommandOption::new(CommandOptionType::String, "source", "Fuente de búsqueda")
-                .add_string_choice("YouTube", "youtube")
-                .add_string_choice("Spotify", "spotify")
-                .add_string_choice("SoundCloud", "soundcloud")
-                .add_string_choice("Tidal", "tidal"),
         )
 }
 

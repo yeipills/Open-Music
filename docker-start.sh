@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =====================================
-# 🎵 Open Music Bot - Docker Start Script
+#  Open Music Bot - Docker Start Script
 # =====================================
 # Production-ready startup script for Docker containers
 # Handles initialization, health checks, and graceful shutdown
@@ -9,7 +9,7 @@
 set -euo pipefail  # Exit on error, undefined vars, pipe failures
 
 # =====================================
-# 🔧 Configuration
+#  Configuration
 # =====================================
 
 # Colors for output
@@ -29,7 +29,7 @@ readonly DATA_DIR="${DATA_DIR:-/app/data}"
 readonly CACHE_DIR="${CACHE_DIR:-/app/cache}"
 
 # =====================================
-# 📊 Logging Functions
+#  Logging Functions
 # =====================================
 
 log_info() {
@@ -51,7 +51,7 @@ log_debug() {
 }
 
 # =====================================
-# 🔍 Health Check Functions
+#  Health Check Functions
 # =====================================
 
 check_binary() {
@@ -65,7 +65,7 @@ check_binary() {
         return 1
     fi
     
-    log_info "✅ Application binary found and executable"
+    log_info "Application binary found and executable"
     return 0
 }
 
@@ -87,7 +87,7 @@ check_dependencies() {
         return 1
     fi
     
-    log_info "✅ All dependencies found"
+    log_info "All dependencies found"
     return 0
 }
 
@@ -107,7 +107,7 @@ check_environment() {
         return 1
     fi
     
-    log_info "✅ Required environment variables set"
+    log_info "Required environment variables set"
     return 0
 }
 
@@ -129,12 +129,12 @@ check_directories() {
         fi
     done
     
-    log_info "✅ Data directories accessible"
+    log_info "Data directories accessible"
     return 0
 }
 
 check_network() {
-    log_info "🌐 Checking network connectivity..."
+    log_info "Checking network connectivity..."
     
     # Check Discord API connectivity
     if ! curl -s --max-time 10 "https://discord.com/api/v10/gateway" > /dev/null; then
@@ -148,12 +148,12 @@ check_network() {
         # Don't fail on YouTube connectivity issues
     fi
     
-    log_info "✅ Network connectivity verified"
+    log_info "Network connectivity verified"
     return 0
 }
 
 run_health_check() {
-    log_info "🏥 Running comprehensive health check..."
+    log_info "Running comprehensive health check..."
     
     local checks=(
         "check_binary"
@@ -170,12 +170,12 @@ run_health_check() {
         fi
     done
     
-    log_info "✅ All health checks passed"
+    log_info "All health checks passed"
     return 0
 }
 
 # =====================================
-# 🚀 Application Management
+#  Application Management
 # =====================================
 
 setup_signal_handlers() {
@@ -187,10 +187,10 @@ setup_signal_handlers() {
 
 handle_shutdown() {
     local signal="$1"
-    log_info "📡 Received $signal signal, initiating graceful shutdown..."
+    log_info "Received $signal signal, initiating graceful shutdown..."
     
     if [[ -n "${APP_PID:-}" ]]; then
-        log_info "🛑 Stopping application (PID: $APP_PID)..."
+        log_info "Stopping application (PID: $APP_PID)..."
         kill -TERM "$APP_PID" 2>/dev/null || true
         
         # Wait for graceful shutdown
@@ -202,20 +202,20 @@ handle_shutdown() {
         
         # Force kill if still running
         if kill -0 "$APP_PID" 2>/dev/null; then
-            log_warn "⚠️ Application didn't stop gracefully, force killing..."
+            log_warn "Application didn't stop gracefully, force killing..."
             kill -KILL "$APP_PID" 2>/dev/null || true
         fi
         
-        log_info "✅ Application stopped"
+        log_info "Application stopped"
     fi
     
     cleanup_resources
-    log_info "👋 Shutdown complete"
+    log_info "Shutdown complete"
     exit 0
 }
 
 cleanup_resources() {
-    log_info "🧹 Cleaning up resources..."
+    log_info "Cleaning up resources..."
     
     # Clean temporary files
     find /tmp -name "openmusic-*" -type f -mtime +1 -delete 2>/dev/null || true
@@ -235,14 +235,14 @@ cleanup_resources() {
 }
 
 start_application() {
-    log_info "🚀 Starting Open Music Bot..."
+    log_info "Starting Open Music Bot..."
     
     # Set runtime environment
     export RUST_LOG="${RUST_LOG:-info,open_music=debug}"
     export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
     
     # Log configuration
-    log_info "📋 Configuration:"
+    log_info "Configuration:"
     log_info "  - Data directory: $DATA_DIR"
     log_info "  - Cache directory: $CACHE_DIR"
     log_info "  - Log level: ${RUST_LOG}"
@@ -256,27 +256,27 @@ start_application() {
     "$APP_BINARY" &
     APP_PID=$!
     
-    log_info "✅ Application started (PID: $APP_PID)"
+    log_info "Application started (PID: $APP_PID)"
     
     # Wait for the application to exit
     wait "$APP_PID"
     local exit_code=$?
     
     if [[ $exit_code -eq 0 ]]; then
-        log_info "✅ Application exited cleanly"
+        log_info "Application exited cleanly"
     else
-        log_error "❌ Application exited with code: $exit_code"
+        log_error "Application exited with code: $exit_code"
     fi
     
     return $exit_code
 }
 
 # =====================================
-# 🎯 Main Function
+#  Main Function
 # =====================================
 
 main() {
-    log_info "🎵 Open Music Bot Docker Start Script"
+    log_info "Open Music Bot Docker Start Script"
     log_info "======================================"
     
     # Parse command line arguments
@@ -296,7 +296,7 @@ main() {
             
             # Run health check
             if ! run_health_check; then
-                log_error "🚨 Pre-flight health check failed"
+                log_error "Pre-flight health check failed"
                 exit 1
             fi
             
@@ -347,7 +347,7 @@ EOF
 }
 
 # =====================================
-# 🏁 Script Entry Point
+#  Script Entry Point
 # =====================================
 
 # Only run main if script is executed directly (not sourced)

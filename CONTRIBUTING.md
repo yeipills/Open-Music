@@ -1,525 +1,174 @@
-# 🤝 Guía de Contribución - Open Music Bot
+# Cómo contribuir
 
-¡Gracias por tu interés en contribuir a Open Music Bot! Este documento te guiará para hacer contribuciones efectivas al proyecto.
+Gracias por querer aportar. Este documento cubre el trámite: cómo preparar el
+entorno, cómo mandar un cambio y qué se espera de él. Cómo funciona el bot por
+dentro está en [DEVELOPMENT.md](DEVELOPMENT.md).
 
-## 📋 Tabla de Contenidos
+## Índice
 
-1. [🚀 Inicio Rápido](#-inicio-rápido)
-2. [🛠️ Configuración del Entorno](#️-configuración-del-entorno)
-3. [📝 Proceso de Contribución](#-proceso-de-contribución)
-4. [🎯 Tipos de Contribuciones](#-tipos-de-contribuciones)
-5. [📋 Estándares de Código](#-estándares-de-código)
-6. [🧪 Testing](#-testing)
-7. [📚 Documentación](#-documentación)
-8. [🔄 Proceso de Review](#-proceso-de-review)
-9. [🏷️ Versionado](#️-versionado)
-10. [📞 Obtener Ayuda](#-obtener-ayuda)
+- [Antes de empezar](#antes-de-empezar)
+- [Preparar el entorno](#preparar-el-entorno)
+- [Flujo de trabajo](#flujo-de-trabajo)
+- [Mensajes de commit](#mensajes-de-commit)
+- [Estándares de código](#estándares-de-código)
+- [Tests](#tests)
+- [Revisión](#revisión)
+- [Reportar errores](#reportar-errores)
 
----
+## Antes de empezar
 
-## 🚀 Inicio Rápido
+- Para un cambio grande, abrí primero una incidencia y comentá el enfoque. Es
+  mejor discutir el diseño antes que después de escribir quinientas líneas.
+- Para un arreglo pequeño o una corrección de documentación, mandá el pull
+  request directamente.
+- Los cambios en la capa de audio deben respetar las invariantes listadas en
+  [DEVELOPMENT.md](DEVELOPMENT.md#invariantes-que-no-hay-que-romper). Están ahí
+  porque saltárselas reintrodujo fallos concretos.
 
-### ⚡ Contribución Rápida (< 5 minutos)
+## Preparar el entorno
 
-```bash
-# 1. Fork y clonar
-git clone https://github.com/tu-usuario/open-music-bot.git
-cd open-music-bot
+Necesitás Rust 1.82 o superior, o bien Docker si preferís no instalar nada. Las
+dependencias de sistema para compilar son `cmake`, `libopus-dev` (`opus-devel` en
+Fedora) y `pkg-config`; en tiempo de ejecución hacen falta `ffmpeg` y `yt-dlp`.
 
-# 2. Crear rama
-git checkout -b feature/mi-mejora
+Los comandos exactos, con y sin Docker, están en
+[DEVELOPMENT.md](DEVELOPMENT.md#entorno-de-desarrollo).
 
-# 3. Hacer cambios y verificar
-cargo fmt && cargo clippy && cargo test
+Para probar el bot necesitás tu propia aplicación de Discord y su token. No uses
+un token que ya esté en producción.
 
-# 4. Commit y push
-git add .
-git commit -m "feat: descripción clara del cambio"
-git push origin feature/mi-mejora
+## Flujo de trabajo
 
-# 5. Crear Pull Request
-```
+1. Bifurcá el repositorio y clonalo:
 
----
-
-## 🛠️ Configuración del Entorno
-
-### 📋 Prerequisitos
-
-**Desarrollo Local:**
-- **Rust** 1.82+ ([rustup.rs](https://rustup.rs/))
-- **Git** 2.30+
-- **yt-dlp** latest (`pip3 install --upgrade yt-dlp`)
-
-**Dependencias del Sistema (Ubuntu/Debian):**
-```bash
-sudo apt update && sudo apt install -y \
-    build-essential cmake pkg-config \
-    libssl-dev libopus-dev python3-pip
-```
-
-### 🐳 Opción Docker (Recomendado)
-
-```bash
-# Setup completo con Docker
-cp .env.example .env
-# Configurar DISCORD_TOKEN en .env
-docker-compose up -d --build
-```
-
-### 🔧 Configuración de IDE
-
-**VS Code (Recomendado):**
-```json
-// .vscode/settings.json
-{
-    "rust-analyzer.cargo.features": ["all"],
-    "rust-analyzer.checkOnSave.command": "clippy",
-    "editor.formatOnSave": true
-}
-```
-
-**Extensiones recomendadas:**
-- `rust-lang.rust-analyzer`
-- `vadimcn.vscode-lldb`
-- `serayuzgur.crates`
-
----
-
-## 📝 Proceso de Contribución
-
-### 🔄 Workflow Completo
-
-1. **Fork del repositorio**
    ```bash
-   # En GitHub: Click "Fork"
-   git clone https://github.com/TU-USUARIO/open-music-bot.git
-   cd open-music-bot
-   git remote add upstream https://github.com/ORIGINAL-OWNER/open-music-bot.git
+   git clone https://github.com/TU-USUARIO/Open-Music.git
+   cd Open-Music
+   git remote add upstream https://github.com/yeipills/Open-Music.git
    ```
 
-2. **Crear rama de feature**
+2. Creá una rama con un nombre que diga qué hace:
+
    ```bash
-   git checkout -b feature/nombre-descriptivo
-   # o
-   git checkout -b fix/issue-numero
-   # o  
-   git checkout -b docs/mejora-documentacion
+   git checkout -b fix/reconexion-tras-expulsion
    ```
 
-3. **Desarrollo**
+3. Hacé el cambio y verificá antes de commitear:
+
    ```bash
-   # Hacer cambios
-   # Seguir estándares de código (ver más abajo)
-   
-   # Verificar calidad
    cargo fmt
-   cargo clippy
+   cargo clippy --all-targets
    cargo test
    ```
 
-4. **Commit**
-   ```bash
-   git add .
-   git commit -m "tipo(scope): descripción clara
-   
-   - Detalle 1
-   - Detalle 2
-   
-   Fixes #123"
-   ```
+4. Commiteá siguiendo la convención de la sección siguiente.
 
-5. **Mantener actualizado**
+5. Traé lo último de `main` antes de publicar:
+
    ```bash
    git fetch upstream
    git rebase upstream/main
    ```
 
-6. **Push y PR**
-   ```bash
-   git push origin feature/nombre-descriptivo
-   # Crear PR en GitHub
-   ```
+6. Subí la rama y abrí el pull request.
 
-### 📋 Checklist Pre-commit
+### Antes de abrir el pull request
 
-- [ ] `cargo fmt` - Código formateado
-- [ ] `cargo clippy` - Sin warnings
-- [ ] `cargo test` - Tests pasan
-- [ ] `cargo audit` - Sin vulnerabilidades
-- [ ] Documentación actualizada
-- [ ] Tests para nuevas funcionalidades
-- [ ] CHANGELOG.md actualizado (si aplica)
+- `cargo fmt` sin cambios pendientes.
+- `cargo clippy --all-targets` sin avisos nuevos.
+- `cargo test` en verde.
+- `docker compose build` completa, si tocaste dependencias o el Dockerfile.
+- Documentación actualizada si el cambio altera el comportamiento visible.
+- Tests para la lógica nueva que se pueda probar sin conexión a Discord.
 
----
+## Mensajes de commit
 
-## 🎯 Tipos de Contribuciones
+Formato convencional:
 
-### 🐛 **Bug Fixes**
-```bash
-git checkout -b fix/audio-playback-issue
-
-# Ejemplo de commit
-git commit -m "fix(audio): corrige reproducción entrecortada en bitrate alto
-
-- Ajusta buffer size para OPUS_BITRATE > 256kbps
-- Mejora manejo de memoria en audio pipeline
-- Añade test para bitrates extremos
-
-Fixes #145"
 ```
+tipo(ámbito): descripción corta en minúsculas
 
-### ✨ **Nuevas Features**
-```bash
-git checkout -b feature/spotify-integration
+Explicación más detallada si hace falta, en uno o varios párrafos.
 
-# Desarrollo con tests
-cargo test --test spotify_integration
-
-# Commit ejemplo
-git commit -m "feat(sources): añade integración con Spotify API
-
-- Implementa SpotifySource struct
-- Añade metadata fetching desde Spotify
-- Mantiene compatibilidad con YouTube como fallback
-- Incluye rate limiting para API calls
-
-Closes #67"
-```
-
-### 📚 **Documentación**
-```bash
-git checkout -b docs/api-examples
-
-git commit -m "docs: añade ejemplos de uso de API en README
-
-- Ejemplos para comandos slash más comunes
-- Guía de configuración avanzada
-- Screenshots de interfaz Discord
-
-Improves #89"
-```
-
-### ⚡ **Performance**
-```bash
-git checkout -b perf/cache-optimization
-
-git commit -m "perf(cache): optimiza LRU cache con TTL inteligente
-
-- Reduce memory usage 30% promedio
-- Implementa adaptive TTL basado en frecuencia de uso
-- Añade métricas de cache hit/miss
-
-Benchmark:
-- Before: 150MB avg, 60% hit rate
-- After: 105MB avg, 85% hit rate"
-```
-
-### 🔧 **Refactoring**
-```bash
-git checkout -b refactor/audio-module
-
-git commit -m "refactor(audio): reorganiza módulo para mejor mantenimiento
-
-- Separa AudioPlayer de AudioQueue
-- Extrae common traits para sources
-- Mejora error handling consistency
-- Mantiene API pública sin cambios
-
-No breaking changes"
-```
-
----
-
-## 📋 Estándares de Código
-
-### 🦀 **Rust Guidelines**
-
-**Formato y Estilo:**
-```rust
-// ✅ Bueno: Nombres descriptivos
-pub struct AudioTrackMetadata {
-    pub title: String,
-    pub duration: Duration,
-    pub source_url: String,
-}
-
-// ✅ Bueno: Error handling con context
-pub async fn fetch_audio_metadata(url: &str) -> anyhow::Result<AudioTrackMetadata> {
-    let response = reqwest::get(url)
-        .await
-        .with_context(|| format!("Failed to fetch: {}", url))?;
-    // ...
-    Ok(metadata)
-}
-
-// ✅ Bueno: Logging estructurado
-tracing::info!(
-    track = %metadata.title,
-    duration_secs = metadata.duration.as_secs(),
-    "Successfully loaded audio track"
-);
-```
-
-**Async Patterns:**
-```rust
-// ✅ Bueno: Spawn para background tasks
-tokio::spawn(async move {
-    if let Err(e) = cleanup_old_cache_files().await {
-        tracing::warn!("Cache cleanup failed: {:?}", e);
-    }
-});
-
-// ✅ Bueno: Timeout para operaciones externas
-let result = tokio::time::timeout(
-    Duration::from_secs(10),
-    download_audio(url)
-).await??;
-```
-
-### 📝 **Commit Messages**
-
-**Formato:**
-```
-tipo(scope): descripción corta en minúsculas
-
-Explicación más detallada si es necesario.
-Puede tener múltiples párrafos.
-
-- Lista de cambios
-- Otro cambio importante
+- Detalle relevante
+- Otro detalle
 
 Fixes #123
-Closes #456
 ```
 
-**Tipos válidos:**
-- `feat`: Nueva funcionalidad
-- `fix`: Bug fix
-- `docs`: Solo documentación
-- `style`: Formatting, no cambios de lógica
-- `refactor`: Reestructura código sin cambiar funcionalidad
-- `perf`: Mejoras de performance
-- `test`: Añade o mejora tests
-- `chore`: Mantenimiento, dependencias
+Tipos válidos:
 
----
+| Tipo | Cuándo |
+|---|---|
+| `feat` | Funcionalidad nueva. |
+| `fix` | Corrección de un fallo. |
+| `docs` | Sólo documentación. |
+| `style` | Formato, sin cambios de lógica. |
+| `refactor` | Reestructuración sin cambiar el comportamiento. |
+| `perf` | Mejora de rendimiento. |
+| `test` | Añade o mejora tests. |
+| `chore` | Mantenimiento, dependencias, configuración. |
 
-## 🧪 Testing
+El cuerpo del commit debe explicar **por qué**, no repetir lo que ya se ve en el
+diff. Si arreglás un fallo, contá qué lo causaba.
 
-### 🔬 **Estrategia de Testing**
+## Estándares de código
 
-**Unit Tests:**
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use pretty_assertions::assert_eq;
+- El código sigue `rustfmt` con la configuración por defecto.
+- Nada de `unwrap()` ni `expect()` en rutas que dependan de datos externos:
+  Discord, yt-dlp o el sistema de archivos. Devolvé un error y dejá que suba.
+- Los comentarios explican por qué algo está hecho así, no qué hace la línea
+  siguiente. Un comentario que repite el código sobra; uno que explica una
+  decisión no obvia vale su peso en oro.
+- Documentá con `///` los elementos públicos cuyo uso no sea evidente.
+- El texto que ve el usuario va en español, con acentuación correcta.
+- Sin emojis: ni en la interfaz, ni en los mensajes de registro, ni en la
+  documentación.
+- Los nombres de identificadores y los comentarios siguen el idioma que ya usa el
+  archivo que estás tocando.
 
-    #[tokio::test]
-    async fn test_audio_queue_add_remove() {
-        let mut queue = AudioQueue::new(100);
-        let track = create_test_track("Test Song");
-        
-        queue.add(track.clone()).await?;
-        assert_eq!(queue.len(), 1);
-        
-        let popped = queue.pop().await?;
-        assert_eq!(popped.title, "Test Song");
-    }
-}
-```
+## Tests
 
-**Integration Tests:**
+El proyecto tiene tests unitarios de la configuración, del almacenamiento y de
+las funciones puras de la capa de comandos. Todo lo que dependa de Discord o de
+la red no se prueba de forma automática.
+
+Al añadir lógica nueva, extraé la parte pura y probala. Por ejemplo, el análisis
+de una marca de tiempo o el cálculo de una página de la cola son comprobables sin
+levantar nada.
+
 ```bash
-# Ejecutar tests específicos
-cargo test audio_queue
-cargo test --test integration
-
-# Tests con output detallado
-cargo test -- --nocapture
-
-# Tests en modo release (performance)
-cargo test --release
+cargo test
+cargo test -- --nocapture   # con la salida de las trazas
 ```
 
-### 📊 **Coverage Goals**
-- **Unit Tests**: 80%+ coverage mínimo
-- **Integration Tests**: Todos los comandos slash
-- **Performance Tests**: Benchmarks para cambios críticos
+## Revisión
 
----
+Al abrir el pull request, contá en la descripción:
 
-## 📚 Documentación
+- Qué problema resuelve y cómo lo verificaste.
+- Si cambia el comportamiento visible del bot, en qué se nota.
+- Si tocaste la capa de audio, qué invariantes revisaste.
 
-### 📝 **Qué Documentar**
+Un cambio se acepta cuando compila sin avisos nuevos, los tests pasan, el
+comportamiento está verificado y el código es coherente con el resto del
+proyecto. Si algo no se puede probar sin un servidor de Discord real, decilo de
+forma explícita en el pull request en vez de afirmar que funciona.
 
-**Código:**
-```rust
-/// Fetch audio metadata from various sources with fallback support.
-/// 
-/// # Arguments
-/// * `url` - The source URL (YouTube, direct audio, etc.)
-/// * `timeout` - Maximum time to wait for response
-/// 
-/// # Returns
-/// * `Ok(AudioTrackMetadata)` - Successfully parsed metadata
-/// * `Err(anyhow::Error)` - Network error, parsing error, or timeout
-/// 
-/// # Examples
-/// ```rust
-/// let metadata = fetch_audio_metadata("https://youtube.com/watch?v=...", Duration::from_secs(10)).await?;
-/// println!("Track: {} ({})", metadata.title, metadata.duration);
-/// ```
-pub async fn fetch_audio_metadata(url: &str, timeout: Duration) -> anyhow::Result<AudioTrackMetadata> {
-    // ...
-}
-```
+## Reportar errores
 
-**README Updates:**
-- Nuevas features en sección "Funcionalidades"
-- Nuevos comandos en tabla de comandos
-- Cambios en instalación o configuración
+Una incidencia útil trae:
 
-### 📖 **Archivos de Documentación**
-- `README.md` - Información general y quick start
-- `DEVELOPMENT.md` - Guía para desarrolladores
-- `TROUBLESHOOTING.md` - Solución de problemas
-- Este `CONTRIBUTING.md` - Guía de contribución
+- Qué esperabas que pasara y qué pasó.
+- Los pasos para reproducirlo.
+- Las trazas relevantes (`docker compose logs open-music`), sin el token ni las
+  cookies.
+- Versión del bot, del sistema operativo y de yt-dlp.
 
----
+Antes de abrirla, revisá [TROUBLESHOOTING.md](TROUBLESHOOTING.md): los problemas
+con cookies de YouTube y con el bloqueo anti-bot ya están documentados ahí.
 
-## 🔄 Proceso de Review
+## Licencia
 
-### 👥 **Pull Request Guidelines**
-
-**Template de PR:**
-```markdown
-## 📋 Descripción
-Breve descripción de los cambios realizados.
-
-## 🎯 Tipo de Cambio
-- [ ] Bug fix (cambio que corrige un issue)
-- [ ] Nueva feature (cambio que añade funcionalidad)
-- [ ] Breaking change (fix o feature que causa incompatibilidad)
-- [ ] Documentación
-
-## 🧪 Testing
-- [ ] Tests unitarios pasan
-- [ ] Tests de integración pasan
-- [ ] Probado manualmente con Discord
-
-## 📋 Checklist
-- [ ] Código formateado (`cargo fmt`)
-- [ ] Sin warnings (`cargo clippy`)
-- [ ] Documentación actualizada
-- [ ] Tests añadidos/actualizados
-```
-
-### ⏱️ **Timeline Esperado**
-- **Primera Review**: 2-3 días hábiles
-- **Feedback Response**: 1-2 días
-- **Merge**: 1-2 días después de aprobación
-
-### 🎯 **Criterios de Aprobación**
-- [ ] Código limpio y bien documentado
-- [ ] Tests pasan sin issues
-- [ ] Performance no se degrada
-- [ ] Compatible con features existentes
-- [ ] Documentación actualizada
-
----
-
-## 🏷️ Versionado
-
-Seguimos [Semantic Versioning](https://semver.org/):
-
-- **MAJOR** (1.x.x): Breaking changes
-- **MINOR** (x.1.x): Nuevas features (backward compatible)
-- **PATCH** (x.x.1): Bug fixes
-
-**Ejemplos:**
-- `1.0.0` → `1.0.1`: Bug fix en audio playback
-- `1.0.1` → `1.1.0`: Nuevo comando `/lyrics`
-- `1.1.0` → `2.0.0`: Cambio en API de comandos
-
----
-
-## 📞 Obtener Ayuda
-
-### 💬 **Canales de Comunicación**
-
-**Para Dudas Técnicas:**
-- Crear issue con label `question`
-- Revisar [DEVELOPMENT.md](DEVELOPMENT.md) para patrones
-- Consultar [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-
-**Para Bugs:**
-- Crear issue con template de bug report
-- Incluir logs relevantes
-- Pasos para reproducir
-
-**Para Feature Requests:**
-- Crear issue con template de feature request
-- Explicar use case y beneficios
-- Mockups o ejemplos si es UI
-
-### 🆘 **Template de Issue**
-
-```markdown
-**Describe el bug**
-Descripción clara del problema.
-
-**Para reproducir**
-1. Ejecutar comando '...'
-2. Ver error
-
-**Comportamiento esperado**
-Lo que debería pasar.
-
-**Screenshots/Logs**
-```
-[logs aquí]
-```
-
-**Entorno:**
-- OS: [Ubuntu 22.04]
-- Rust: [1.82.0] 
-- Docker: [si aplica]
-```
-
----
-
-## 🎉 Reconocimientos
-
-### 🏆 **Tipos de Contribuciones Valoradas**
-
-- 🐛 **Bug Hunters**: Encuentran y reportan bugs
-- ✨ **Feature Developers**: Implementan nuevas funcionalidades
-- 📚 **Documentation Writers**: Mejoran documentación
-- 🔧 **Performance Optimizers**: Mejoran velocidad/memoria
-- 🧪 **Test Writers**: Añaden cobertura de testing
-- 🎨 **UX Improvers**: Mejoran experiencia de usuario
-- 🌍 **Community Helpers**: Ayudan a otros usuarios
-
-### 📜 **Código de Conducta**
-
-- **Sé respetuoso**: Trata a todos con respeto profesional
-- **Sé constructivo**: Critica código, no personas
-- **Sé paciente**: Recuerda que todos estamos aprendiendo
-- **Sé colaborativo**: Trabaja en equipo hacia objetivos comunes
-
----
-
-## 🚀 ¡Empezar a Contribuir!
-
-1. **Lee la documentación**: README.md y DEVELOPMENT.md
-2. **Fork el repositorio**: Haz tu copia personal
-3. **Encuentra un issue**: Label "good first issue" para empezar
-4. **¡Haz tu primer PR!**: Siguiendo esta guía
-
-**¡Gracias por hacer Open Music Bot mejor para toda la comunidad! 🎵🤖**
-
----
-
-*¿Encontraste un error en esta guía? ¡Contribuye arreglándolo! 😄*
+Al contribuir aceptás que tu aportación se publique bajo la licencia MIT del
+proyecto.

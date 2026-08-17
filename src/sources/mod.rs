@@ -1,3 +1,4 @@
+pub mod lazy;
 pub mod ytdlp_optimized;
 
 use anyhow::Result;
@@ -124,13 +125,13 @@ impl TrackSource {
     /// `filter` es la cadena de filtros ffmpeg construida por `AudioEffects::build_filter`
     /// (loudnorm + EQ del preset). Si la cadena ffmpeg falla, cae a un fallback sin efectos.
     pub async fn get_input(&self, filter: &str) -> Result<Input> {
-        info!("🎵 Creando input para: {}", self.title);
+        info!("Creando input para: {}", self.title);
 
         // Camino principal: yt-dlp | ffmpeg con loudnorm + EQ reales
         match self.get_ffmpeg_input(filter).await {
             Ok(input) => Ok(input),
             Err(e) => {
-                tracing::warn!("⚠️ Cadena ffmpeg falló: {:?}, fallback sin efectos...", e);
+                tracing::warn!("Cadena ffmpeg falló: {:?}, fallback sin efectos...", e);
                 // Fallback sin efectos: streaming directo vía songbird YoutubeDl
                 self.get_simple_input().await
             }

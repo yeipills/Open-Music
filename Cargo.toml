@@ -2,9 +2,13 @@
 name = "open-music"
 version = "1.0.0"
 edition = "2021"
-authors = ["Your Name <your@email.com>"]
-description = "High-performance Discord music bot"
+authors = ["yeipills"]
+description = "Bot de música para Discord escrito en Rust, con songbird y yt-dlp"
 license = "MIT"
+repository = "https://github.com/yeipills/Open-Music"
+readme = "README.md"
+keywords = ["discord", "music", "bot", "songbird", "audio"]
+categories = ["multimedia::audio"]
 rust-version = "1.82"
 
 [profile.release]

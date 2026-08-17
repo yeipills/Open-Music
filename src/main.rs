@@ -8,6 +8,7 @@ mod audio;
 mod bot;
 mod cache;
 mod config;
+mod errors;
 mod monitoring;
 mod sources;
 mod storage;
@@ -31,11 +32,11 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    info!("🎵 Iniciando Open Music Bot v{}", env!("CARGO_PKG_VERSION"));
+    info!("Iniciando Open Music Bot v{}", env!("CARGO_PKG_VERSION"));
 
     // Cargar configuración
     let config = Config::load()?;
-    info!("⚙️ {}", config.summary());
+    info!("{}", config.summary());
 
     // Manejar health check si es necesario
     if std::env::args().any(|arg| arg == "--health-check") {
@@ -53,7 +54,7 @@ async fn main() -> Result<()> {
     // Inicializar sistema de monitoreo
     let monitoring_config = MonitoringConfig::default();
     let monitoring = Arc::new(MonitoringSystem::new(monitoring_config));
-    info!("📊 Sistema de monitoreo activado");
+    info!("Sistema de monitoreo activado");
 
     // Configurar intents mínimos necesarios
     let intents = GatewayIntents::GUILDS
@@ -61,11 +62,12 @@ async fn main() -> Result<()> {
         | GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::MESSAGE_CONTENT;
 
-    // Crear handler del bot
-    let handler = OpenMusicBot::new(config.clone(), storage, cache, monitoring);
-
-    // Construir cliente con Songbird
+    // Songbird se crea antes que el bot: el reproductor lo necesita como única
+    // fuente de verdad de las conexiones de voz.
     let songbird = Songbird::serenity();
+
+    // Crear handler del bot
+    let handler = OpenMusicBot::new(config.clone(), storage, cache, monitoring, songbird.clone());
     let mut client = Client::builder(&config.discord_token, intents)
         .event_handler(handler)
         .register_songbird_with(songbird.clone())
@@ -73,19 +75,19 @@ async fn main() -> Result<()> {
 
     // El sistema de audio (cola, reproducción, efectos) vive en OpenMusicBot.player.
     // Las conexiones de voz se gestionan vía songbird::get(ctx) en los handlers.
-    info!("🎵 Sistema de audio listo (AudioPlayer + Songbird + yt-dlp)");
+    info!("Sistema de audio listo (AudioPlayer + Songbird + yt-dlp)");
 
     // Manejar shutdown graceful
     tokio::spawn(async move {
         tokio::signal::ctrl_c()
             .await
             .expect("Error al registrar Ctrl+C");
-        info!("⚠️ Señal de shutdown recibida, cerrando...");
+        info!("Señal de shutdown recibida, cerrando...");
         std::process::exit(0);
     });
 
     // Iniciar bot
-    info!("🚀 Bot iniciado exitosamente");
+    info!("Bot iniciado exitosamente");
     if let Err(why) = client.start().await {
         error!("Error al ejecutar cliente: {:?}", why);
     }

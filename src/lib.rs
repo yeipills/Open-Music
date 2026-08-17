@@ -6,6 +6,7 @@ pub mod audio;
 pub mod bot;
 pub mod cache;
 pub mod config;
+pub mod errors;
 pub mod monitoring;
 pub mod sources;
 pub mod storage;

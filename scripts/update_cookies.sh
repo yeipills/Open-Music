@@ -1,7 +1,7 @@
 #!/bin/bash
 # Script para actualizar cookies de YouTube - Open Music Bot
 
-echo "🍪 ACTUALIZADOR DE COOKIES DE YOUTUBE"
+echo "ACTUALIZADOR DE COOKIES DE YOUTUBE"
 echo "===================================="
 
 CONTAINER_NAME="open-music-bot"
@@ -9,19 +9,19 @@ COOKIE_DIR="./config"
 CONTAINER_COOKIE_PATH="/home/openmusic/.config/yt-dlp"
 
 echo ""
-echo "📂 1. VERIFICANDO DIRECTORIO DE COOKIES..."
+echo "1. VERIFICANDO DIRECTORIO DE COOKIES..."
 echo "-----------------------------------------"
 
 if [ ! -d "$COOKIE_DIR" ]; then
-    echo "❌ Directorio de configuración no encontrado: $COOKIE_DIR"
-    echo "🔧 Creando directorio..."
+    echo "Directorio de configuración no encontrado: $COOKIE_DIR"
+    echo "Creando directorio..."
     mkdir -p "$COOKIE_DIR"
 fi
 
-echo "✅ Directorio de configuración: OK"
+echo "Directorio de configuración: OK"
 
 echo ""
-echo "🔄 2. GENERANDO NUEVAS COOKIES..."
+echo "2. GENERANDO NUEVAS COOKIES..."
 echo "--------------------------------"
 
 # Crear archivo de cookies actualizadas para 2025
@@ -49,10 +49,10 @@ cat > "$COOKIE_DIR/cookies.txt" << 'EOF'
 .youtube.com	TRUE	/	TRUE	1769439600	DEVICE_INFO	ChxOelV5TWprMk1EY3dPVGMwTXpBM05UZzVNdz09ELzVy7QGGLz8zLQG
 EOF
 
-echo "✅ Cookies generadas con valores aleatorios únicos"
+echo "Cookies generadas con valores aleatorios únicos"
 
 echo ""
-echo "⚙️ 3. ACTUALIZANDO CONFIGURACIÓN DE YT-DLP..."
+echo "3. ACTUALIZANDO CONFIGURACIÓN DE YT-DLP..."
 echo "---------------------------------------------"
 
 # Crear configuración optimizada para 2025
@@ -114,69 +114,69 @@ cat > "$COOKIE_DIR/config" << 'EOF'
 --sleep-subtitles 1
 EOF
 
-echo "✅ Configuración de yt-dlp actualizada"
+echo "Configuración de yt-dlp actualizada"
 
 echo ""
-echo "🐳 4. APLICANDO CAMBIOS AL CONTENEDOR..."
+echo "4. APLICANDO CAMBIOS AL CONTENEDOR..."
 echo "---------------------------------------"
 
 # Verificar si el contenedor está corriendo
 if docker ps | grep -q "$CONTAINER_NAME"; then
-    echo "📋 Contenedor encontrado y corriendo"
+    echo "Contenedor encontrado y corriendo"
     
     # Copiar archivos al contenedor
-    echo "📂 Copiando cookies actualizadas..."
+    echo "Copiando cookies actualizadas..."
     docker cp "$COOKIE_DIR/cookies.txt" "$CONTAINER_NAME:$CONTAINER_COOKIE_PATH/cookies.txt"
     docker cp "$COOKIE_DIR/config" "$CONTAINER_NAME:$CONTAINER_COOKIE_PATH/config"
     
     # Corregir permisos dentro del contenedor
-    echo "🔐 Corrigiendo permisos..."
+    echo "Corrigiendo permisos..."
     docker exec "$CONTAINER_NAME" chown openmusic:openmusic "$CONTAINER_COOKIE_PATH/cookies.txt" "$CONTAINER_COOKIE_PATH/config"
     docker exec "$CONTAINER_NAME" chmod 644 "$CONTAINER_COOKIE_PATH/cookies.txt" "$CONTAINER_COOKIE_PATH/config"
     
-    echo "✅ Archivos actualizados en el contenedor"
+    echo "Archivos actualizados en el contenedor"
     
     # Reiniciar contenedor para aplicar cambios
-    echo "🔄 Reiniciando contenedor para aplicar cambios..."
+    echo "Reiniciando contenedor para aplicar cambios..."
     docker restart "$CONTAINER_NAME"
     
-    echo "✅ Contenedor reiniciado"
+    echo "Contenedor reiniciado"
     
 else
-    echo "⚠️  Contenedor no está corriendo"
-    echo "💡 Las cookies se aplicarán al próximo inicio del contenedor"
+    echo "Contenedor no está corriendo"
+    echo "Las cookies se aplicarán al próximo inicio del contenedor"
 fi
 
 echo ""
-echo "🧪 5. PROBANDO YT-DLP CON NUEVAS COOKIES..."
+echo "5. PROBANDO YT-DLP CON NUEVAS COOKIES..."
 echo "------------------------------------------"
 
 # Probar extracción con las nuevas cookies
 TEST_URL="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-echo "🎵 Probando con video de prueba..."
+echo "Probando con video de prueba..."
 
 if command -v yt-dlp &> /dev/null; then
     if yt-dlp --cookies "$COOKIE_DIR/cookies.txt" --quiet --simulate --format "bestaudio" "$TEST_URL" &> /dev/null; then
-        echo "✅ Test de extracción: EXITOSO"
+        echo "Test de extracción: EXITOSO"
     else
-        echo "⚠️  Test de extracción: FALLÓ (puede ser temporal)"
-        echo "💡 El sistema de fallback debería funcionar"
+        echo "Test de extracción: FALLÓ (puede ser temporal)"
+        echo "El sistema de fallback debería funcionar"
     fi
 else
-    echo "⚠️  yt-dlp no disponible en el host para testing"
+    echo "yt-dlp no disponible en el host para testing"
 fi
 
 echo ""
-echo "📊 RESUMEN DE LA ACTUALIZACIÓN:"
+echo "RESUMEN DE LA ACTUALIZACIÓN:"
 echo "=============================="
-echo "✅ Cookies generadas con valores únicos aleatorios"
-echo "✅ Configuración optimizada para anti-bot detection"
-echo "✅ Headers HTTP modernos aplicados"
-echo "✅ Configuración de fallback mejorada"
-echo "✅ Permisos corregidos en el contenedor"
+echo "Cookies generadas con valores únicos aleatorios"
+echo "Configuración optimizada para anti-bot detection"
+echo "Headers HTTP modernos aplicados"
+echo "Configuración de fallback mejorada"
+echo "Permisos corregidos en el contenedor"
 
 echo ""
-echo "💡 PRÓXIMOS PASOS:"
+echo "PRÓXIMOS PASOS:"
 echo "=================="
 echo "1. El bot ahora debería funcionar con la configuración mejorada"
 echo "2. Si persisten problemas, se activará automáticamente el modo fallback"
@@ -184,4 +184,4 @@ echo "3. Puedes ejecutar este script cada vez que necesites cookies frescas"
 echo "4. Monitorea los logs con: docker logs -f $CONTAINER_NAME"
 
 echo ""
-echo "🔚 Actualización de cookies completada."
+echo "Actualización de cookies completada."

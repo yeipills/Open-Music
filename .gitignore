@@ -10,7 +10,14 @@
 config.toml
 config.json
 settings.json
-# CLAUDE.md es privado del usuario
+
+# === HERRAMIENTAS DE DESARROLLO LOCALES ===
+# Instrucciones para asistentes de IA: son notas de trabajo, no documentación
+# del proyecto. Lo que sirve a cualquiera vive en DEVELOPMENT.md.
+CLAUDE.md
+.claude/
+.serena/
+.mcp.json
 
 # === YT-DLP & COOKIES ===
 config/cookies.txt
@@ -26,19 +33,19 @@ cookies.txt
 /data/
 
 # === LOGS ===
-logs/
+/logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
 # === CACHE & TEMP ===
-audio_cache/
-temp_audio/
-downloads/
-bot_cache/
-voice_cache/
-playlist_cache/
+/audio_cache/
+/temp_audio/
+/downloads/
+/bot_cache/
+/voice_cache/
+/playlist_cache/
 /cache/
 *.tmp
 *.temp
@@ -77,11 +84,11 @@ Thumbs.db
 *.pid.lock
 
 # === METRICS & MONITORING ===
-metrics/
-monitoring/
+/metrics/
+/monitoring/
 
 # === TEST COVERAGE ===
-coverage/
+/coverage/
 lcov.info
 *.profraw
 
@@ -95,7 +102,7 @@ ROADMAP.draft.md
 *.key
 *.pem
 *.p12
-secrets/
+/secrets/
 .secrets/
 
 # === DEVELOPMENT TOOLS ===

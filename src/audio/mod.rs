@@ -13,14 +13,15 @@
 //! The audio system is built around three main components:
 //!
 //! ### [`player`] - Audio Player
-//! - Manages playback state and voice connections
-//! - Handles track transitions and queue processing
-//! - Provides volume control and seek functionality
+//! - Opera sobre la cola nativa de songbird (no mantiene cola propia)
+//! - Guarda las preferencias por guild: volumen, repetición, aleatorio, historial
 //!
-//! ### [`queue`] - Queue Management  
-//! - Thread-safe queue operations for concurrent access
-//! - Shuffle and repeat mode implementations
-//! - Track history and position tracking
+//! ### [`queue`] - Metadatos y vistas
+//! - `QueueItem` viaja adjunto a cada pista de songbird como user data
+//! - `QueueInfo` / `QueuePage` son proyecciones de sólo lectura para la UI
+//!
+//! ### [`events`] - Handlers de songbird
+//! - `TrackPlayHandler`, `TrackEndHandler` e `IdleHandler`
 //!
 //! ### [`effects`] - Audio Processing
 //! - Real-time equalizer with multiple presets
@@ -44,15 +45,15 @@
 //! ## Example Usage
 //!
 //! ```text
-//! let player = AudioPlayer::new(default_volume);
-//! // Encolar y reproducir (requiere un handler de voz de songbird):
-//! player.play(guild_id, track_source, handler).await?;
+//! let player = AudioPlayer::new(default_volume, songbird_manager);
+//! // La conexión se resuelve sola a partir del guild_id:
+//! player.play(guild_id, track_source).await?;   // encola (y arranca si estaba libre)
 //! player.pause(guild_id).await?;
 //! player.resume(guild_id).await?;
-//! player.skip_tracks(guild_id, 1, handler).await?;
+//! player.skip_tracks(guild_id, 1).await?;
 //! ```
 
 pub mod effects;
+pub mod events;
 pub mod player;
 pub mod queue;
-pub mod robust_queue;
