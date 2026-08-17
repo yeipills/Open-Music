@@ -11,7 +11,7 @@ use super::{MusicSource, TrackSource, SourceType};
 /// `bgutil-provider` en la red del compose). Evita el bloqueo anti-bot de
 /// YouTube ("Sign in to confirm you're not a bot") desde IPs de datacenter.
 /// El base_url es overridable por env `POT_PROVIDER_URL`.
-fn pot_extractor_arg() -> String {
+pub(crate) fn pot_extractor_arg() -> String {
     let base = std::env::var("POT_PROVIDER_URL")
         .unwrap_or_else(|_| "http://bgutil-provider:4416".to_string());
     format!("youtubepot-bgutilhttp:base_url={base}")
@@ -36,10 +36,10 @@ impl YtDlpOptimizedClient {
         match ytdlp_check {
             Ok(output) if output.status.success() => {
                 let version = String::from_utf8_lossy(&output.stdout);
-                info!("✅ yt-dlp versión: {}", version.trim());
+                info!("yt-dlp versión: {}", version.trim());
             }
             _ => {
-                error!("❌ yt-dlp no encontrado. Instala con: pip install yt-dlp");
+                error!("yt-dlp no encontrado. Instala con: pip install yt-dlp");
                 anyhow::bail!("yt-dlp no disponible");
             }
         }
@@ -52,10 +52,10 @@ impl YtDlpOptimizedClient {
             
         match ffmpeg_check {
             Ok(output) if output.status.success() => {
-                info!("✅ ffmpeg disponible");
+                info!("ffmpeg disponible");
             }
             _ => {
-                error!("❌ ffmpeg no encontrado. Instala con: sudo apt install ffmpeg");
+                error!("ffmpeg no encontrado. Instala con: sudo apt install ffmpeg");
                 anyhow::bail!("ffmpeg no disponible");
             }
         }
@@ -134,7 +134,7 @@ impl YtDlpOptimizedClient {
         match std::fs::copy(&original, &dst) {
             Ok(_) => Some(dst),
             Err(e) => {
-                warn!("🍪 No se pudo copiar cookies a tmp ({e}); usando original");
+                warn!("No se pudo copiar cookies a tmp ({e}); usando original");
                 Some(original)
             }
         }
@@ -250,7 +250,7 @@ impl YtDlpOptimizedClient {
 #[async_trait]
 impl MusicSource for YtDlpOptimizedClient {
     async fn search(&self, query: &str, limit: usize) -> Result<Vec<TrackSource>> {
-        info!("🔍 Iniciando búsqueda yt-dlp optimizada: {}", query);
+        info!("Iniciando búsqueda yt-dlp optimizada: {}", query);
         
         // Usar URL de YouTube search en lugar de ytsearch extractor (más confiable)
         let search_url = format!(
@@ -306,11 +306,11 @@ impl MusicSource for YtDlpOptimizedClient {
         let results = String::from_utf8_lossy(&output.stdout);
         let mut tracks = Vec::new();
 
-        debug!("📋 Procesando {} líneas de resultados", results.lines().count());
+        debug!("Procesando {} líneas de resultados", results.lines().count());
         for (i, line) in results.lines().take(limit).enumerate() {
-            debug!("📄 Línea {}: {}", i + 1, line);
+            debug!("Línea {}: {}", i + 1, line);
             let parts: Vec<&str> = line.split('|').collect();
-            debug!("🔗 Partes: {:?}", parts);
+            debug!("Partes: {:?}", parts);
 
             if parts.len() >= 4 {
                 let mut track = TrackSource::new(
@@ -329,14 +329,14 @@ impl MusicSource for YtDlpOptimizedClient {
                     track = track.with_duration(Duration::from_secs_f64(secs));
                 }
 
-                debug!("✅ Track creado: {}", track.title());
+                debug!("Track creado: {}", track.title());
                 tracks.push(track);
             } else {
-                warn!("⚠️ Línea con formato incorrecto: {}", line);
+                warn!("Línea con formato incorrecto: {}", line);
             }
         }
 
-        info!("🔍 Encontrados {} resultados para: {}", tracks.len(), query);
+        info!("Encontrados {} resultados para: {}", tracks.len(), query);
         Ok(tracks)
     }
 
@@ -409,7 +409,7 @@ impl MusicSource for YtDlpOptimizedClient {
             .filter_map(|line| Self::parse_playlist_line(line, UserId::new(1)))
             .collect();
 
-        info!("🎵 Playlist extraída con {} tracks", tracks.len());
+        info!("Playlist extraída con {} tracks", tracks.len());
         Ok(tracks)
     }
 
@@ -505,13 +505,13 @@ impl TrackSource {
         })
         .await??;
 
-        info!("🎚️ Input con efectos (ffmpeg) creado para: {}", title);
+        info!("Input con efectos (ffmpeg) creado para: {}", title);
         Ok(input)
     }
 
     /// Método de fallback más simple si el optimizado falla
     pub async fn get_simple_input(&self) -> Result<Input> {
-        info!("🔄 Usando método simple de fallback para: {}", self.title());
+        info!("Usando método simple de fallback para: {}", self.title());
         
         // Verificar que sea URL de YouTube
         if !YtDlpOptimizedClient::is_youtube_url(&self.url()) {
@@ -532,7 +532,7 @@ impl TrackSource {
         let ytdl = songbird::input::YoutubeDl::new(client, self.url());
         let input = Input::from(ytdl);
 
-        info!("✅ Input simple creado para: {}", self.title());
+        info!("Input simple creado para: {}", self.title());
         Ok(input)
     }
 }

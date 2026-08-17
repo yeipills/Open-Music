@@ -60,11 +60,12 @@
 //!     source: "youtube".to_string(),
 //! };
 //!
-//! // Cache the track info
-//! cache.put("video_id_123".to_string(), track_info);
+//! // Cache the track info (sin TTL explícito usa el de por defecto)
+//! let key = "video_id_123".to_string();
+//! cache.insert_with_ttl(key.clone(), track_info, None);
 //!
 //! // Retrieve from cache
-//! if let Some(cached) = cache.get("video_id_123") {
+//! if let Some(cached) = cache.get(&key) {
 //!     println!("Found cached track: {}", cached.title);
 //! }
 //! # }
@@ -154,7 +155,7 @@ impl MusicCache {
     pub fn cleanup_old_entries(&self) {
         let removed = self.cleanup_expired();
         if removed > 0 {
-            info!("🧹 Cache cleanup: removed {} expired entries", removed);
+            info!("Cache cleanup: removed {} expired entries", removed);
         }
     }
 }

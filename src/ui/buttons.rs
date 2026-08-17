@@ -58,7 +58,7 @@ impl MusicControls {
         is_looping: bool,
         is_shuffled: bool,
     ) -> Vec<CreateActionRow> {
-        let play_pause_emoji = if is_playing { "⏸️" } else { "▶️" };
+        let play_pause_label = if is_playing { "Pausar" } else { "Reproducir" };
         let loop_style = if is_looping {
             ButtonStyle::Success
         } else {
@@ -72,23 +72,23 @@ impl MusicControls {
 
         // First row of buttons
         let play_pause_btn = CreateButton::new(button_ids::PLAY_PAUSE)
-            .emoji(play_pause_emoji.chars().next().unwrap())
+            .label(play_pause_label)
             .style(ButtonStyle::Primary);
 
         let skip_btn = CreateButton::new(button_ids::SKIP)
-            .emoji('⏭')
+            .label("Saltar")
             .style(ButtonStyle::Secondary);
 
         let stop_btn = CreateButton::new(button_ids::STOP)
-            .emoji('⏹')
+            .label("Detener")
             .style(ButtonStyle::Danger);
 
         let shuffle_btn = CreateButton::new(button_ids::SHUFFLE)
-            .emoji('🔀')
+            .label("Aleatorio")
             .style(shuffle_style);
 
         let loop_btn = CreateButton::new(button_ids::LOOP_TRACK)
-            .emoji('🔁')
+            .label("Repetir")
             .style(loop_style);
 
         let row1 = CreateActionRow::Buttons(vec![
@@ -101,25 +101,23 @@ impl MusicControls {
 
         // Second row of buttons
         let restart_btn = CreateButton::new(button_ids::RESTART)
-            .emoji('🔄')
+            .label("Reiniciar")
             .style(ButtonStyle::Secondary);
 
         let vol_down_btn = CreateButton::new(button_ids::VOLUME_DOWN)
-            .emoji('🔉')
+            .label("Vol -")
             .style(ButtonStyle::Secondary);
 
         let vol_up_btn = CreateButton::new(button_ids::VOLUME_UP)
-            .emoji('🔊')
+            .label("Vol +")
             .style(ButtonStyle::Secondary);
 
         let queue_btn = CreateButton::new(button_ids::QUEUE)
             .label("Cola")
-            .emoji('📋')
             .style(ButtonStyle::Secondary);
 
         let effects_btn = CreateButton::new(button_ids::EFFECTS)
             .label("Efectos")
-            .emoji('🎛')
             .style(ButtonStyle::Secondary);
 
         let row2 = CreateActionRow::Buttons(vec![restart_btn, vol_down_btn, vol_up_btn, queue_btn, effects_btn]);
@@ -131,12 +129,12 @@ impl MusicControls {
     #[allow(dead_code)]
     pub fn create_pagination_controls(current_page: usize, total_pages: usize) -> CreateActionRow {
         let prev_btn = CreateButton::new(button_ids::PREVIOUS_PAGE)
-            .emoji('◀')
+            .label("Anterior")
             .style(ButtonStyle::Primary)
             .disabled(current_page == 0);
 
         let next_btn = CreateButton::new(button_ids::NEXT_PAGE)
-            .emoji('▶')
+            .label("Siguiente")
             .style(ButtonStyle::Primary)
             .disabled(current_page >= total_pages - 1);
 
@@ -144,9 +142,7 @@ impl MusicControls {
             .label("Cerrar")
             .style(ButtonStyle::Danger);
 
-        let row = CreateActionRow::Buttons(vec![prev_btn, next_btn, close_btn]);
-
-        row
+        CreateActionRow::Buttons(vec![prev_btn, next_btn, close_btn])
     }
     
     /// Crea controles específicos para playlists
@@ -155,27 +151,22 @@ impl MusicControls {
         // Primera fila: Controles básicos de playlist
         let load_btn = CreateButton::new(button_ids::PLAYLIST_LOAD)
             .label("Cargar")
-            .emoji('📥')
             .style(ButtonStyle::Success);
 
         let preview_btn = CreateButton::new(button_ids::PLAYLIST_PREVIEW)
             .label("Vista Previa")
-            .emoji('👁')
             .style(ButtonStyle::Secondary);
 
         let save_btn = CreateButton::new(button_ids::PLAYLIST_SAVE)
             .label("Guardar")
-            .emoji('💾')
             .style(ButtonStyle::Primary);
 
         let shuffle_btn = CreateButton::new(button_ids::PLAYLIST_SHUFFLE)
             .label("Mezclar")
-            .emoji('🔀')
             .style(ButtonStyle::Secondary);
 
         let info_btn = CreateButton::new(button_ids::PLAYLIST_INFO)
             .label("Info")
-            .emoji('ℹ')
             .style(ButtonStyle::Secondary);
 
         let row1 = CreateActionRow::Buttons(vec![load_btn, preview_btn, save_btn, shuffle_btn, info_btn]);
@@ -188,12 +179,10 @@ impl MusicControls {
     pub fn create_playlist_confirmation_controls() -> CreateActionRow {
         let confirm_btn = CreateButton::new(button_ids::PLAYLIST_CONFIRM)
             .label("Sí, agregar playlist")
-            .emoji('✅')
             .style(ButtonStyle::Success);
 
         let cancel_btn = CreateButton::new(button_ids::PLAYLIST_CANCEL)
             .label("Cancelar")
-            .emoji('❌')
             .style(ButtonStyle::Danger);
 
         CreateActionRow::Buttons(vec![confirm_btn, cancel_btn])
@@ -205,22 +194,18 @@ impl MusicControls {
         // Primera fila: Operaciones principales
         let manage_btn = CreateButton::new(button_ids::PLAYLIST_MANAGE)
             .label("Gestionar")
-            .emoji("⚙️".chars().next().unwrap())
             .style(ButtonStyle::Primary);
             
         let remove_btn = CreateButton::new(button_ids::PLAYLIST_REMOVE)
             .label("Remover")
-            .emoji("🗑️".chars().next().unwrap())
             .style(ButtonStyle::Danger);
             
         let remove_dupes_btn = CreateButton::new(button_ids::PLAYLIST_REMOVE_DUPLICATES)
             .label("Sin Duplicados")
-            .emoji('🔄')
             .style(ButtonStyle::Secondary);
             
         let queue_pos_btn = CreateButton::new(button_ids::PLAYLIST_QUEUE_POSITION)
             .label("Posición")
-            .emoji('📍')
             .style(ButtonStyle::Secondary);
             
         let row1 = CreateActionRow::Buttons(vec![manage_btn, remove_btn, remove_dupes_btn, queue_pos_btn]);
@@ -228,12 +213,10 @@ impl MusicControls {
         // Segunda fila: Funciones sociales
         let history_btn = CreateButton::new(button_ids::PLAYLIST_HISTORY)
             .label("Historial")
-            .emoji('📚')
             .style(ButtonStyle::Secondary);
             
         let share_btn = CreateButton::new(button_ids::PLAYLIST_SHARE)
             .label("Compartir")
-            .emoji('📤')
             .style(ButtonStyle::Secondary);
             
         let row2 = CreateActionRow::Buttons(vec![history_btn, share_btn]);
@@ -252,13 +235,11 @@ impl MusicControls {
         
         let progress_btn = CreateButton::new("playlist_progress")
             .label(&progress_text)
-            .emoji('⏳')
             .style(ButtonStyle::Secondary)
             .disabled(true);
             
         let cancel_btn = CreateButton::new(button_ids::PLAYLIST_CANCEL)
             .label("Cancelar")
-            .emoji('❌')
             .style(ButtonStyle::Danger);
             
         let row = CreateActionRow::Buttons(vec![progress_btn, cancel_btn]);
@@ -272,33 +253,33 @@ impl MusicControls {
         has_queue: bool,
         loop_mode: &str
     ) -> Vec<CreateActionRow> {
-        let play_pause_emoji = if is_playing { "⏸️" } else { "▶️" };
-        let loop_emoji = match loop_mode {
-            "track" => "🔂",
-            "queue" => "🔁",
-            _ => "🔁",
+        let play_pause_label = if is_playing { "Pausar" } else { "Reproducir" };
+        let loop_label = match loop_mode {
+            "track" => "Repetir tema",
+            "queue" => "Repetir cola",
+            _ => "Repetir",
         };
         
         // Primera fila: Controles principales
         let play_pause_btn = CreateButton::new(button_ids::PLAY_PAUSE)
-            .emoji(play_pause_emoji.chars().next().unwrap())
+            .label(play_pause_label)
             .style(if is_playing { ButtonStyle::Secondary } else { ButtonStyle::Success });
 
         let skip_btn = CreateButton::new(button_ids::SKIP)
-            .emoji('⏭')
+            .label("Saltar")
             .style(ButtonStyle::Primary)
             .disabled(!has_queue);
 
         let stop_btn = CreateButton::new(button_ids::STOP)
-            .emoji('⏹')
+            .label("Detener")
             .style(ButtonStyle::Danger);
 
         let shuffle_btn = CreateButton::new(button_ids::SHUFFLE)
-            .emoji('🔀')
+            .label("Aleatorio")
             .style(ButtonStyle::Secondary);
 
         let loop_btn = CreateButton::new(button_ids::LOOP_TRACK)
-            .emoji(loop_emoji.chars().next().unwrap())
+            .label(loop_label)
             .style(ButtonStyle::Secondary);
 
         let row1 = CreateActionRow::Buttons(vec![
@@ -311,25 +292,23 @@ impl MusicControls {
 
         // Segunda fila: Controles de audio e información
         let restart_btn = CreateButton::new(button_ids::RESTART)
-            .emoji('🔄')
+            .label("Reiniciar")
             .style(ButtonStyle::Secondary);
 
         let vol_down_btn = CreateButton::new(button_ids::VOLUME_DOWN)
-            .emoji('🔉')
+            .label("Vol -")
             .style(ButtonStyle::Secondary);
 
         let vol_up_btn = CreateButton::new(button_ids::VOLUME_UP)
-            .emoji('🔊')
+            .label("Vol +")
             .style(ButtonStyle::Secondary);
 
         let queue_btn = CreateButton::new(button_ids::QUEUE)
             .label("Cola")
-            .emoji('📋')
             .style(ButtonStyle::Secondary);
 
         let effects_btn = CreateButton::new(button_ids::EFFECTS)
             .label("Efectos")
-            .emoji('🎛')
             .style(ButtonStyle::Secondary);
 
         let row2 = CreateActionRow::Buttons(vec![restart_btn, vol_down_btn, vol_up_btn, queue_btn, effects_btn]);
@@ -358,7 +337,6 @@ pub fn create_enhanced_player_buttons(is_playing: bool, has_queue: bool, loop_mo
 pub fn create_retry_button() -> CreateActionRow {
     let retry_btn = CreateButton::new("retry_action")
         .label("Reintentar")
-        .emoji('🔄')
         .style(ButtonStyle::Primary);
     
     CreateActionRow::Buttons(vec![retry_btn])
@@ -369,12 +347,10 @@ pub fn create_retry_button() -> CreateActionRow {
 pub fn create_confirmation_buttons(action_id: &str) -> CreateActionRow {
     let confirm_btn = CreateButton::new(format!("confirm_{}", action_id))
         .label("Sí, confirmar")
-        .emoji('✅')
         .style(ButtonStyle::Success);
     
     let cancel_btn = CreateButton::new("cancel_action")
         .label("Cancelar")
-        .emoji('❌')
         .style(ButtonStyle::Danger);
     
     CreateActionRow::Buttons(vec![confirm_btn, cancel_btn])
@@ -384,12 +360,12 @@ pub fn create_confirmation_buttons(action_id: &str) -> CreateActionRow {
 #[allow(dead_code)]
 pub fn create_navigation_buttons(has_prev: bool, has_next: bool, current_page: usize, total_pages: usize) -> CreateActionRow {
     let first_btn = CreateButton::new("nav_first")
-        .emoji('⏪')
+        .label("Primera")
         .style(ButtonStyle::Secondary)
         .disabled(!has_prev || current_page == 1);
     
     let prev_btn = CreateButton::new("nav_prev")
-        .emoji('◀')
+        .label("Anterior")
         .style(ButtonStyle::Primary)
         .disabled(!has_prev);
     
@@ -399,12 +375,12 @@ pub fn create_navigation_buttons(has_prev: bool, has_next: bool, current_page: u
         .disabled(true);
     
     let next_btn = CreateButton::new("nav_next")
-        .emoji('▶')
+        .label("Siguiente")
         .style(ButtonStyle::Primary)
         .disabled(!has_next);
     
     let last_btn = CreateButton::new("nav_last")
-        .emoji('⏩')
+        .label("Ultima")
         .style(ButtonStyle::Secondary)
         .disabled(!has_next || current_page == total_pages);
     
@@ -415,12 +391,11 @@ pub fn create_navigation_buttons(has_prev: bool, has_next: bool, current_page: u
 #[allow(dead_code)]
 pub fn create_volume_control_buttons(current_volume: f32) -> CreateActionRow {
     let mute_btn = CreateButton::new("volume_mute")
-        .emoji(if current_volume == 0.0 { '🔊' } else { '🔇' })
+        .label(if current_volume == 0.0 { "Activar" } else { "Silenciar" })
         .style(if current_volume == 0.0 { ButtonStyle::Success } else { ButtonStyle::Secondary });
     
     let vol_down_btn = CreateButton::new("volume_down_big")
         .label("-10")
-        .emoji('🔉')
         .style(ButtonStyle::Secondary)
         .disabled(current_volume <= 0.0);
     
@@ -436,7 +411,6 @@ pub fn create_volume_control_buttons(current_volume: f32) -> CreateActionRow {
     
     let vol_up_btn = CreateButton::new("volume_up_big")
         .label("+10")
-        .emoji('🔊')
         .style(ButtonStyle::Secondary)
         .disabled(current_volume >= 2.0);
     
@@ -452,9 +426,9 @@ impl MusicEmbeds {
     #[allow(dead_code)]
     pub fn now_playing(track: &TrackSource, is_playing: bool) -> CreateEmbed {
         let status = if is_playing {
-            "▶️ Reproduciendo"
+            "Reproduciendo"
         } else {
-            "⏸️ Pausado"
+            "Pausado"
         };
         let progress_bar = Self::create_progress_bar(0.0, 20); // Progress not available in static context
 
@@ -471,7 +445,7 @@ impl MusicEmbeds {
             .field("Progreso", progress_bar, false)
             .colour(Colour::from_rgb(255, 73, 108))
             .thumbnail(track.thumbnail().unwrap_or_default())
-            .footer(CreateEmbedFooter::new("🎵 Open Music Bot"))
+            .footer(CreateEmbedFooter::new("Open Music Bot"))
             .timestamp(Timestamp::now());
         embed
     }
@@ -504,7 +478,7 @@ impl MusicEmbeds {
         }
 
         let embed = CreateEmbed::default()
-            .title("📋 Cola de Reproducción")
+            .title("Cola de Reproducción")
             .description(description)
             .field("Total de canciones", tracks.len().to_string(), true)
             .field(
@@ -522,7 +496,7 @@ impl MusicEmbeds {
     #[allow(dead_code)]
     pub fn error_embed(error_msg: &str) -> CreateEmbed {
         CreateEmbed::default()
-            .title("❌ Error")
+            .title("Error")
             .description(error_msg)
             .colour(Colour::RED)
             .timestamp(Timestamp::now())
@@ -532,7 +506,7 @@ impl MusicEmbeds {
     #[allow(dead_code)]
     pub fn success_embed(title: &str, description: &str) -> CreateEmbed {
         CreateEmbed::default()
-            .title(format!("✅ {}", title))
+            .title(title)
             .description(description)
             .colour(Colour::from_rgb(67, 181, 129))
             .timestamp(Timestamp::now())
@@ -565,10 +539,10 @@ impl MusicEmbeds {
         let empty = length - filled;
 
         format!(
-            "{}{}{}",
-            "▬".repeat(filled),
-            "🔘",
-            "▬".repeat(empty.saturating_sub(1))
+            "[{}{}{}]",
+            "=".repeat(filled),
+            if filled < length { ">" } else { "" },
+            "-".repeat(empty.saturating_sub(1))
         )
     }
 }
@@ -588,64 +562,53 @@ pub async fn handle_music_component(
         button_ids::PLAY_PAUSE => {
             if player.is_playing(guild_id).await {
                 player.pause(guild_id).await?;
-                respond_with_updated_now_playing(ctx, interaction, guild_id, player, "⏸️ Música pausada").await?;
+                respond_with_updated_now_playing(ctx, interaction, guild_id, player, "Música pausada").await?;
             } else {
                 player.resume(guild_id).await?;
-                respond_with_updated_now_playing(ctx, interaction, guild_id, player, "▶️ Música reanudada").await?;
+                respond_with_updated_now_playing(ctx, interaction, guild_id, player, "Música reanudada").await?;
             }
         }
         button_ids::SKIP => {
             interaction.defer(&ctx.http).await?;
             
-            // Obtener el handler para reproducir la siguiente canción
-            if let Some(handler) = bot.get_voice_handler(guild_id) {
-                match player.skip_tracks(guild_id, 1, handler).await {
-                    Ok(_) => {
-                        update_response(ctx, interaction, "⏭️ Saltando a la siguiente canción").await?;
+            match player.skip_tracks(guild_id, 1).await {
+                Ok(()) => match player.current_meta(guild_id).await {
+                    Some(next) => {
+                        update_response(ctx, interaction, &format!("Ahora suena: {}", next.title)).await?;
                     }
-                    Err(_) => {
-                        update_response(ctx, interaction, "⏭️ No hay más canciones en la cola").await?;
+                    None => {
+                        update_response(ctx, interaction, "Cola terminada").await?;
                     }
+                },
+                Err(e) => {
+                    update_response(ctx, interaction, &format!("{}", e)).await?;
                 }
-            } else {
-                update_response(ctx, interaction, "❌ No hay conexión de voz activa").await?;
             }
         }
         button_ids::RESTART => {
             interaction.defer(&ctx.http).await?;
 
-            if let Some(handler) = bot.get_voice_handler(guild_id) {
-                match player.get_current_track(guild_id).await {
-                    Some(current) => {
-                        match player.play_source_now(guild_id, current.clone(), handler).await {
-                            Ok(_) => {
-                                update_response(ctx, interaction, &format!("🔄 Reiniciando: {}", current.title())).await?;
-                            }
-                            Err(_) => {
-                                update_response(ctx, interaction, "❌ No se pudo reiniciar la canción").await?;
-                            }
-                        }
-                    }
-                    None => {
-                        update_response(ctx, interaction, "❌ No hay nada reproduciéndose").await?;
-                    }
+            match player.restart_current(guild_id).await {
+                Ok(current) => {
+                    update_response(ctx, interaction, &format!("Reiniciando: {}", current.title)).await?;
                 }
-            } else {
-                update_response(ctx, interaction, "❌ No hay conexión de voz activa").await?;
+                Err(e) => {
+                    update_response(ctx, interaction, &format!("{}", e)).await?;
+                }
             }
         }
         button_ids::STOP => {
             interaction.defer(&ctx.http).await?;
             player.stop(guild_id).await?;
-            update_response(ctx, interaction, "⏹️ Reproducción detenida").await?;
+            update_response(ctx, interaction, "Reproducción detenida").await?;
         }
         button_ids::SHUFFLE => {
             interaction.defer(&ctx.http).await?;
             let enabled = player.toggle_shuffle(guild_id).await?;
             let msg = if enabled {
-                "🔀 Modo aleatorio activado"
+                "Modo aleatorio activado"
             } else {
-                "🔀 Modo aleatorio desactivado"
+                "Modo aleatorio desactivado"
             };
             update_response(ctx, interaction, msg).await?;
         }
@@ -653,9 +616,9 @@ pub async fn handle_music_component(
             interaction.defer(&ctx.http).await?;
             let enabled = player.toggle_loop(guild_id).await?;
             let msg = if enabled {
-                "🔁 Repetición activada"
+                "Repetición activada"
             } else {
-                "🔁 Repetición desactivada"
+                "Repetición desactivada"
             };
             update_response(ctx, interaction, msg).await?;
         }
@@ -666,10 +629,10 @@ pub async fn handle_music_component(
             
             if let Err(e) = player.set_volume(guild_id, new_volume).await {
                 error!("Error ajustando volumen: {:?}", e);
-                update_response(ctx, interaction, "❌ Error al ajustar el volumen").await?;
+                update_response(ctx, interaction, "Error al ajustar el volumen").await?;
             } else {
                 let volume_percent = (new_volume * 100.0) as u8;
-                let msg = format!("🔉 Volumen: {}%", volume_percent);
+                let msg = format!("Volumen: {}%", volume_percent);
                 update_response(ctx, interaction, &msg).await?;
             }
         }
@@ -680,10 +643,10 @@ pub async fn handle_music_component(
             
             if let Err(e) = player.set_volume(guild_id, new_volume).await {
                 error!("Error ajustando volumen: {:?}", e);
-                update_response(ctx, interaction, "❌ Error al ajustar el volumen").await?;
+                update_response(ctx, interaction, "Error al ajustar el volumen").await?;
             } else {
                 let volume_percent = (new_volume * 100.0) as u8;
-                let msg = format!("🔊 Volumen: {}%", volume_percent);
+                let msg = format!("Volumen: {}%", volume_percent);
                 update_response(ctx, interaction, &msg).await?;
             }
         }
@@ -704,7 +667,7 @@ pub async fn handle_music_component(
                     interaction.create_response(&ctx.http,
                         serenity::builder::CreateInteractionResponse::Message(
                             serenity::builder::CreateInteractionResponseMessage::new()
-                                .content("❌ Error al obtener la cola")
+                                .content("Error al obtener la cola")
                                 .ephemeral(true)
                         )
                     ).await?;
@@ -715,18 +678,18 @@ pub async fn handle_music_component(
             let eq_details = player.get_equalizer_details(guild_id);
             
             let mut status = String::new();
-            status.push_str("🎛️ **Estado del Ecualizador**\n\n");
-            status.push_str(&format!("🎵 {}\n\n", eq_details));
+            status.push_str("**Estado del Ecualizador**\n\n");
+            status.push_str(&format!("{}\n\n", eq_details));
             status.push_str("**Presets Disponibles:**\n");
-            status.push_str("🎵 Bass - Enfatiza graves\n");
-            status.push_str("🎤 Pop - Equilibrado moderno\n");
-            status.push_str("🎸 Rock - Graves y agudos\n");
-            status.push_str("🎺 Jazz - Claridad vocal\n");
-            status.push_str("🎼 Classical - Dinámico natural\n");
-            status.push_str("🔊 Electronic - Sintético\n");
-            status.push_str("🗣️ Vocal - Enfatiza voces\n");
-            status.push_str("📏 Flat - Sin modificaciones\n\n");
-            status.push_str("💡 *Usa `/equalizer <preset>` para cambiar*");
+            status.push_str("Bass - Enfatiza graves\n");
+            status.push_str("Pop - Equilibrado moderno\n");
+            status.push_str("Rock - Graves y agudos\n");
+            status.push_str("Jazz - Claridad vocal\n");
+            status.push_str("Classical - Dinámico natural\n");
+            status.push_str("Electronic - Sintético\n");
+            status.push_str("Vocal - Enfatiza voces\n");
+            status.push_str("Flat - Sin modificaciones\n\n");
+            status.push_str("*Usa `/equalizer <preset>` para cambiar*");
             
             interaction.create_response(&ctx.http,
                 serenity::builder::CreateInteractionResponse::Message(
@@ -741,7 +704,7 @@ pub async fn handle_music_component(
             interaction.create_response(&ctx.http,
                 serenity::builder::CreateInteractionResponse::Message(
                     serenity::builder::CreateInteractionResponseMessage::new()
-                        .content("📥 **Cargar Playlist**\n\nUsa `/play <url_de_playlist>` para cargar una playlist de YouTube.\n\n📋 **Ejemplos:**\n• `https://youtube.com/playlist?list=...`\n• `https://music.youtube.com/playlist?list=...`")
+                        .content("**Cargar Playlist**\n\nUsa `/play <url_de_playlist>` para cargar una playlist de YouTube.\n\n**Ejemplos:**\n• `https://youtube.com/playlist?list=...`\n• `https://music.youtube.com/playlist?list=...`")
                         .ephemeral(true)
                 )
             ).await?;
@@ -750,7 +713,7 @@ pub async fn handle_music_component(
             interaction.create_response(&ctx.http,
                 serenity::builder::CreateInteractionResponse::Message(
                     serenity::builder::CreateInteractionResponseMessage::new()
-                        .content("💾 **Guardar Playlist Personal**\n\n🚧 *Próximamente disponible*\n\nEsta función permitirá:\n• Guardar playlists personales\n• Cargar rápidamente tus favoritas\n• Compartir con otros usuarios\n• Gestionar colecciones privadas")
+                        .content("**Guardar Playlist Personal**\n\n*Próximamente disponible*\n\nEsta función permitirá:\n• Guardar playlists personales\n• Cargar rápidamente tus favoritas\n• Compartir con otros usuarios\n• Gestionar colecciones privadas")
                         .ephemeral(true)
                 )
             ).await?;
@@ -760,15 +723,15 @@ pub async fn handle_music_component(
             match player.toggle_shuffle(guild_id).await {
                 Ok(enabled) => {
                     let msg = if enabled {
-                        "🔀 **Playlist en modo aleatorio activado**\nLas próximas canciones se reproducirán en orden aleatorio"
+                        "**Playlist en modo aleatorio activado**\nLas próximas canciones se reproducirán en orden aleatorio"
                     } else {
-                        "➡️ **Modo aleatorio desactivado**\nLas canciones se reproducirán en orden normal"
+                        "**Modo aleatorio desactivado**\nLas canciones se reproducirán en orden normal"
                     };
                     update_response(ctx, interaction, msg).await?;
                 }
                 Err(e) => {
                     error!("Error toggling shuffle: {:?}", e);
-                    update_response(ctx, interaction, "❌ Error al cambiar modo aleatorio").await?;
+                    update_response(ctx, interaction, "Error al cambiar modo aleatorio").await?;
                 }
             }
         }
@@ -778,7 +741,7 @@ pub async fn handle_music_component(
                     interaction.create_response(&ctx.http,
                         serenity::builder::CreateInteractionResponse::Message(
                             serenity::builder::CreateInteractionResponseMessage::new()
-                                .content(&format!("🗑️ **Remover de la Cola**\n\n📊 **Estado actual:**\n• {} canciones en cola\n• {} duración total\n\n💡 Usa `/clear queue` para limpiar toda la cola\n💡 Usa `/clear duplicates` para remover duplicados\n💡 Usa `/clear user @usuario` para remover canciones de un usuario", 
+                                .content(&format!("**Remover de la Cola**\n\n**Estado actual:**\n• {} canciones en cola\n• {} duración total\n\nUsa `/clear queue` para limpiar toda la cola\nUsa `/clear duplicates` para remover duplicados\nUsa `/clear user @usuario` para remover canciones de un usuario",
                                     queue_info.total_items,
                                     if queue_info.total_duration.as_secs() > 0 {
                                         format!("{} minutos", queue_info.total_duration.as_secs() / 60)
@@ -793,7 +756,7 @@ pub async fn handle_music_component(
                     interaction.create_response(&ctx.http,
                         serenity::builder::CreateInteractionResponse::Message(
                             serenity::builder::CreateInteractionResponseMessage::new()
-                                .content("📭 **Cola vacía**\nNo hay canciones para remover")
+                                .content("**Cola vacía**\nNo hay canciones para remover")
                                 .ephemeral(true)
                         )
                     ).await?;
@@ -802,7 +765,7 @@ pub async fn handle_music_component(
                 interaction.create_response(&ctx.http,
                     serenity::builder::CreateInteractionResponse::Message(
                         serenity::builder::CreateInteractionResponseMessage::new()
-                            .content("❌ Error al obtener información de la cola")
+                            .content("Error al obtener información de la cola")
                             .ephemeral(true)
                     )
                 ).await?;
@@ -813,7 +776,7 @@ pub async fn handle_music_component(
             interaction.create_response(&ctx.http,
                 serenity::builder::CreateInteractionResponse::Message(
                     serenity::builder::CreateInteractionResponseMessage::new()
-                        .content("⚙️ **Panel de Gestión de Playlists**\n\nElige una opción avanzada:")
+                        .content("**Panel de Gestión de Playlists**\n\nElige una opción avanzada:")
                         .components(controls)
                         .ephemeral(true)
                 )
@@ -823,7 +786,7 @@ pub async fn handle_music_component(
             interaction.create_response(&ctx.http,
                 serenity::builder::CreateInteractionResponse::Message(
                     serenity::builder::CreateInteractionResponseMessage::new()
-                        .content("📚 **Historial de Playlists**\n\n🚧 *Próximamente disponible*\n\nEsta función mostrará:\n• Últimas playlists reproducidas\n• Estadísticas de uso\n• Playlists más populares\n• Acceso rápido a favoritas")
+                        .content("**Historial de Playlists**\n\n*Próximamente disponible*\n\nEsta función mostrará:\n• Últimas playlists reproducidas\n• Estadísticas de uso\n• Playlists más populares\n• Acceso rápido a favoritas")
                         .ephemeral(true)
                 )
             ).await?;
@@ -834,7 +797,7 @@ pub async fn handle_music_component(
                     interaction.create_response(&ctx.http,
                         serenity::builder::CreateInteractionResponse::Message(
                             serenity::builder::CreateInteractionResponseMessage::new()
-                                .content(&format!("📤 **Compartir Cola Actual**\n\n📊 **Información:**\n• {} canciones\n• {} duración\n• Modo: {}\n\n🚧 *Función de exportación próximamente*", 
+                                .content(&format!("**Compartir Cola Actual**\n\n**Información:**\n• {} canciones\n• {} duración\n• Modo: {}\n\n*Función de exportación próximamente*",
                                     queue_info.total_items,
                                     if queue_info.total_duration.as_secs() > 0 {
                                         format!("{} minutos", queue_info.total_duration.as_secs() / 60)
@@ -850,7 +813,7 @@ pub async fn handle_music_component(
                     interaction.create_response(&ctx.http,
                         serenity::builder::CreateInteractionResponse::Message(
                             serenity::builder::CreateInteractionResponseMessage::new()
-                                .content("📭 **Cola vacía**\nNo hay nada que compartir")
+                                .content("**Cola vacía**\nNo hay nada que compartir")
                                 .ephemeral(true)
                         )
                     ).await?;
@@ -859,7 +822,7 @@ pub async fn handle_music_component(
                 interaction.create_response(&ctx.http,
                     serenity::builder::CreateInteractionResponse::Message(
                         serenity::builder::CreateInteractionResponseMessage::new()
-                            .content("❌ Error al obtener información de la cola")
+                            .content("Error al obtener información de la cola")
                             .ephemeral(true)
                     )
                 ).await?;
@@ -870,21 +833,21 @@ pub async fn handle_music_component(
             match player.clear_duplicates(guild_id).await {
                 Ok(removed) => {
                     let msg = if removed > 0 {
-                        format!("🧹 **Duplicados eliminados**\nSe removieron {} canciones duplicadas de la cola", removed)
+                        format!("**Duplicados eliminados**\nSe removieron {} canciones duplicadas de la cola", removed)
                     } else {
-                        "✨ **Cola limpia**\nNo se encontraron canciones duplicadas".to_string()
+                        "**Cola limpia**\nNo se encontraron canciones duplicadas".to_string()
                     };
                     update_response(ctx, interaction, &msg).await?;
                 }
                 Err(e) => {
                     error!("Error removing duplicates: {:?}", e);
-                    update_response(ctx, interaction, "❌ Error al eliminar duplicados").await?;
+                    update_response(ctx, interaction, "Error al eliminar duplicados").await?;
                 }
             }
         }
         button_ids::PLAYLIST_QUEUE_POSITION => {
             if let Ok(queue_info) = player.get_queue_info(guild_id).await {
-                let position_info = format!("📍 **Posición en Cola**\n\n📊 **Estado:**\n• Posición actual: {}\n• Total en cola: {}\n• Progreso: {:.1}%\n• Tiempo restante: ~{} minutos\n\n💡 Usa `/skip <número>` para saltar canciones",
+                let position_info = format!("**Posición en Cola**\n\n**Estado:**\n• Posición actual: {}\n• Total en cola: {}\n• Progreso: {:.1}%\n• Tiempo restante: ~{} minutos\n\nUsa `/skip <número>` para saltar canciones",
                     1, // Posición simplificada
                     queue_info.total_items,
                     if queue_info.total_items > 0 { 
@@ -906,7 +869,7 @@ pub async fn handle_music_component(
                 interaction.create_response(&ctx.http,
                     serenity::builder::CreateInteractionResponse::Message(
                         serenity::builder::CreateInteractionResponseMessage::new()
-                            .content("❌ Error al obtener posición en la cola")
+                            .content("Error al obtener posición en la cola")
                             .ephemeral(true)
                     )
                 ).await?;
@@ -916,7 +879,7 @@ pub async fn handle_music_component(
             if let Ok(queue_info) = player.get_queue_info(guild_id).await {
                 let total_tracks = queue_info.total_items;
                 let preview_msg = format!(
-                    "👁️ **Vista Previa de la Cola**\n\n📊 **Estadísticas:**\n• Total de canciones: {}\n• Duración total: {}\n• Modo loop: {:?}\n• Shuffle: {}\n\n💡 Usa `/queue` para ver la lista completa",
+                    "**Vista Previa de la Cola**\n\n**Estadísticas:**\n• Total de canciones: {}\n• Duración total: {}\n• Modo loop: {:?}\n• Shuffle: {}\n\nUsa `/queue` para ver la lista completa",
                     total_tracks,
                     if queue_info.total_duration.as_secs() > 0 {
                         format!("{} minutos", queue_info.total_duration.as_secs() / 60)
@@ -938,14 +901,14 @@ pub async fn handle_music_component(
                 interaction.create_response(&ctx.http,
                     serenity::builder::CreateInteractionResponse::Message(
                         serenity::builder::CreateInteractionResponseMessage::new()
-                            .content("❌ No se pudo obtener información de la cola")
+                            .content("No se pudo obtener información de la cola")
                             .ephemeral(true)
                     )
                 ).await?;
             }
         }
         button_ids::PLAYLIST_INFO => {
-            let info_msg = "ℹ️ **Información de Playlists**\n\n📋 **Características:**\n• Soporte para playlists de YouTube\n• Carga automática hasta 50 canciones\n• Integración con cola de reproducción\n• Detección inteligente de URLs\n\n🎵 **Formatos soportados:**\n• `youtube.com/playlist?list=...`\n• `music.youtube.com/playlist?list=...`\n• URLs de video con parámetro `&list=`\n\n💡 **Consejos:**\n• Las playlists públicas funcionan mejor\n• Se respeta el orden original\n• Compatible con todos los controles del bot";
+            let info_msg = "**Información de Playlists**\n\n**Características:**\n• Soporte para playlists de YouTube\n• Carga automática hasta 50 canciones\n• Integración con cola de reproducción\n• Detección inteligente de URLs\n\n**Formatos soportados:**\n• `youtube.com/playlist?list=...`\n• `music.youtube.com/playlist?list=...`\n• URLs de video con parámetro `&list=`\n\n**Consejos:**\n• Las playlists públicas funcionan mejor\n• Se respeta el orden original\n• Compatible con todos los controles del bot";
             
             interaction.create_response(&ctx.http,
                 serenity::builder::CreateInteractionResponse::Message(
@@ -960,7 +923,7 @@ pub async fn handle_music_component(
             interaction.create_response(&ctx.http,
                 serenity::builder::CreateInteractionResponse::Message(
                     serenity::builder::CreateInteractionResponseMessage::new()
-                        .content("⚠️ Función no implementada")
+                        .content("Función no implementada")
                         .ephemeral(true)
                 )
             ).await?;

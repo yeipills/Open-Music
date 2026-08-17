@@ -25,7 +25,7 @@ pub struct AudioEffects {
 
 impl AudioEffects {
     pub fn new() -> Self {
-        info!("🎛️ Sistema de ecualizador inicializado");
+        info!("Sistema de ecualizador inicializado");
         Self {
             presets: DashMap::new(),
         }
@@ -64,14 +64,14 @@ impl AudioEffects {
         } else {
             format!("{},{}", loudnorm, eq)
         };
-        info!("🎛️ Filtro ffmpeg ({:?}) guild {}: {}", preset, guild_id, filter);
+        info!("Filtro ffmpeg ({:?}) guild {}: {}", preset, guild_id, filter);
         filter
     }
 
     /// Aplica preset de ecualizador a una guild
     pub fn apply_equalizer_preset(&self, guild_id: GuildId, preset: EqualizerPreset) {
         self.presets.insert(guild_id, preset);
-        info!("🎛️ Preset de ecualizador aplicado: {:?} (guild {})", preset, guild_id);
+        info!("Preset de ecualizador aplicado: {:?} (guild {})", preset, guild_id);
     }
 
     /// Obtiene el preset actual de la guild (Flat por defecto)
@@ -98,6 +98,6 @@ impl AudioEffects {
     #[allow(dead_code)]
     pub fn reset_equalizer(&self, guild_id: GuildId) {
         self.apply_equalizer_preset(guild_id, EqualizerPreset::Flat);
-        info!("🔄 Ecualizador reseteado a plano (guild {})", guild_id);
+        info!("Ecualizador reseteado a plano (guild {})", guild_id);
     }
 }
