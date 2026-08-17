@@ -127,7 +127,7 @@ impl AudioPlayer {
     ///
     /// No hay que "arrancar" nada: si la cola estaba vacía, songbird reproduce
     /// la pista recién encolada de inmediato.
-    pub async fn play(&self, guild_id: GuildId, source: TrackSource) -> Result<()> {
+    pub async fn play(self: &Arc<Self>, guild_id: GuildId, source: TrackSource) -> Result<()> {
         let call = self
             .call(guild_id)
             .ok_or_else(|| anyhow::anyhow!("No hay conexión de voz activa"))?;
@@ -140,10 +140,48 @@ impl AudioPlayer {
             anyhow::bail!("La cola está llena (máximo {} canciones)", MAX_QUEUE_LEN);
         }
         handler.enqueue(track).await;
+        // Si esta pista queda justo detrás de la que suena, conviene prepararla
+        // ya: al encolar una playlist en streaming, la segunda canción llega
+        // décimas después de que arranque la primera, cuando el evento de inicio
+        // de pista ya pasó y no volverá a dispararse.
+        let es_la_siguiente = handler.queue().len() == 2;
         drop(handler);
+
+        if es_la_siguiente {
+            self.preload_next(guild_id);
+        }
 
         info!("Encolado: {}", title);
         Ok(())
+    }
+
+    /// Prepara la pista que sonará a continuación, si aún no lo está.
+    ///
+    /// Songbird precarga por su cuenta, pero sólo cinco segundos antes de que
+    /// acabe la canción en curso: eso cubre el paso natural de un tema al
+    /// siguiente y no cubre `/skip`, donde la pista entrante todavía tendría que
+    /// resolver su URL con yt-dlp y deja unos diez segundos de silencio.
+    ///
+    /// Adelantarlo cuesta un par de procesos que se duermen enseguida, en cuanto
+    /// ffmpeg llena la tubería, y `make_playable` no hace nada si la pista ya
+    /// estaba lista, así que llamarlo de más es inofensivo.
+    pub fn preload_next(self: &Arc<Self>, guild_id: GuildId) {
+        let player = Arc::clone(self);
+        tokio::spawn(async move {
+            let Some(call) = player.call(guild_id) else {
+                return;
+            };
+
+            // Se suelta el bloqueo antes de tocar la pista: `make_playable`
+            // dispara la creación del input y no conviene retenerlo mientras.
+            let queue = call.lock().await.queue().current_queue();
+            let Some(next) = queue.get(1) else {
+                return;
+            };
+
+            info!("Preparando la siguiente: {}", meta_of(next).title);
+            drop(next.make_playable());
+        });
     }
 
     // ------------------------------------------------------------ transporte
