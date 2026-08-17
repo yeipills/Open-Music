@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script simple para probar yt-dlp directamente
-echo "🧪 Prueba directa de yt-dlp"
+echo "Prueba directa de yt-dlp"
 
 TEST_URL="https://www.youtube.com/watch?v=MldGX_mbS-o"
 COOKIES_FILE="$HOME/.config/yt-dlp/cookies.txt"
@@ -33,4 +33,4 @@ echo "Test 4: TV Embed"
 yt-dlp --extractor-args 'youtube:player_client=tv_embed' --simulate --get-title "$TEST_URL"
 echo ""
 
-echo "✅ Pruebas completadas"
+echo "Pruebas completadas"

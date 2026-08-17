@@ -1,431 +1,253 @@
-# 🛠️ Development Guide
-**Open Music Bot - Discord Music Bot in Rust**
+# Guía de desarrollo
 
-*Comprehensive development documentation for contributors and maintainers*
+Cómo está construido el bot por dentro y cómo trabajar en él. Si sólo querés
+usarlo, el [README](README.md) alcanza. Si venís a mandar un cambio, leé también
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
----
+## Índice
 
-## 📋 Project Overview
+- [Arquitectura](#arquitectura)
+- [Invariantes que no hay que romper](#invariantes-que-no-hay-que-romper)
+- [Entorno de desarrollo](#entorno-de-desarrollo)
+- [Configuración](#configuración)
+- [Patrones del código](#patrones-del-código)
+- [Depuración](#depuración)
 
-**Open Music Bot** is a high-performance Discord music bot built with modern Rust architecture. Features include YouTube integration, direct URL support, advanced audio processing with equalizer, and a robust queue management system.
+## Arquitectura
 
-### 🎯 Key Features
-- **Audio Processing**: Real-time equalizer with 8 presets
-- **Multiple Sources**: YouTube (yt-dlp) + Direct URLs
-- **Queue Management**: Advanced controls with shuffle/repeat
-- **Performance**: <100MB RAM, supports 100+ concurrent servers
-- **Modern Stack**: Serenity 0.12.4 + Songbird 0.5.0
+| Módulo | Responsabilidad |
+|---|---|
+| `src/main.rs` | Arranque: configuración, almacenamiento, caché, cliente de serenity y songbird. |
+| `src/config.rs` | Configuración desde variables de entorno, con validación. |
+| `src/errors.rs` | `BotError`: errores de dominio con su texto en español. |
+| `src/storage.rs` | Persistencia en JSON de los ajustes por servidor. |
+| `src/bot/mod.rs` | `EventHandler` de serenity: arranque, interacciones y cambios de estado de voz. |
+| `src/bot/handlers.rs` | Validación y despacho de los comandos. |
+| `src/bot/commands.rs` | Definición y registro de los comandos slash. |
+| `src/bot/connection.rs` | Estado de voz: en qué canal está cada quién. |
+| `src/bot/search.rs` | Comando de búsqueda con menú de selección. |
+| `src/audio/player.rs` | Operaciones sobre la cola de songbird y preferencias por servidor. |
+| `src/audio/queue.rs` | Metadatos adjuntos a cada pista y vistas de sólo lectura para la interfaz. |
+| `src/audio/events.rs` | Handlers de songbird: inicio de pista, fin, caída del driver e inactividad. |
+| `src/audio/effects.rs` | Cadena de filtros de ffmpeg por servidor. |
+| `src/sources/lazy.rs` | Fuente perezosa: implementa `Compose` lanzando `yt-dlp` y `ffmpeg` bajo demanda. |
+| `src/sources/ytdlp_optimized.rs` | Búsqueda, metadatos, PO token y cookies. |
+| `src/ui/embeds.rs`, `src/ui/buttons.rs` | Embeds y controles de Discord. |
+| `src/cache/`, `src/monitoring/` | Caché LRU con expiración y métricas. |
 
-## 🏗️ Architecture
+El recorrido del audio, con diagrama, está en
+[docs/AUDIO_PIPELINE.md](docs/AUDIO_PIPELINE.md).
 
-### 📦 Core Components
+### El flujo de un comando
 
-| Module | Location | Purpose | Key Files |
-|--------|----------|---------|----------|
-| **🎵 Audio System** | `src/audio/` | Player, queue, effects, equalizer | `player.rs`, `queue.rs`, `effects.rs` |
-| **🤖 Bot Framework** | `src/bot/` | Commands, events, voice connections | `commands.rs`, `handlers.rs`, `events.rs` |
-| **📡 Source Integration** | `src/sources/` | YouTube and URL handlers | `youtube.rs`, `direct_url.rs` |
-| **💾 Cache System** | `src/cache/` | LRU cache with TTL | `lru_cache.rs`, `optimized_cache.rs` |
-| **🗄️ Storage** | `src/storage.rs` | JSON persistent storage | Configuration, settings |
-| **🎨 UI Components** | `src/ui/` | Discord embeds and buttons | `embeds.rs`, `buttons.rs` |
-| **📊 Monitoring** | `src/monitoring/` | Performance tracking | `performance_monitor.rs` |
+1. `OpenMusicBot::interaction_create` recibe la interacción y llama a
+   `handlers::dispatch_command`.
+2. `run_command` aplica, en orden: límite de frecuencia, rol de DJ si el comando
+   lo exige, limpieza de una conexión que Discord ya cerró, y la tabla de
+   requisitos de voz.
+3. El handler concreto opera sobre `bot.player`.
+4. Si algo devuelve `Err`, `dispatch_command` responde con el texto del error.
+   Ningún handler responde errores por su cuenta.
 
-### 🔧 Technology Stack
+## Invariantes que no hay que romper
 
-| Component | Technology | Version | Purpose |
-|-----------|------------|---------|--------|
-| **Discord API** | Serenity | 0.12.4 | Bot framework |
-| **Voice/Audio** | Songbird | 0.5.0 | Voice connections |
-| **Audio Decode** | Symphonia | 0.5.4 | Format support (no FFmpeg) |
-| **YouTube DL** | yt-dlp | Latest | Video extraction |
-| **Async Runtime** | Tokio | 1.45 | High-performance async |
-| **Concurrency** | DashMap | 6.1 | Concurrent data structures |
-| **Serialization** | Serde | 1.0 | JSON handling |
+Estas reglas no son estilo: cada una existe porque romperla reintrodujo un fallo
+concreto.
 
-## 🚀 Development Commands
+1. **La cola de songbird (`Call::queue()`) es la única fuente de verdad.** No
+   crear colas paralelas ni guardar aparte cuál es la pista actual. Mantener dos
+   colas sincronizadas a mano fue el origen de las canciones superpuestas y de
+   los listados que no coincidían con lo que sonaba.
 
-### 🔨 Build & Run
+2. **Las conexiones de voz se consultan siempre a songbird**, con
+   `player.call(guild_id)`. No cachear `Arc<Mutex<Call>>` en una estructura
+   propia: en cuanto alguien echa al bot del canal, esa copia miente.
+
+3. **`Call::leave()` no saca la conexión del manager.** Para descartar una
+   conexión hay que usar `manager.remove()`; si no, `manager.get()` sigue
+   devolviendo un `Call` muerto y el bot se cree conectado.
+
+4. **Toda pista se crea en `AudioPlayer::build_track`**, que le adjunta un
+   `Arc<QueueItem>` como *user data*. `queue::meta_of` entra en pánico si una
+   pista se encoló de otra forma, así que esa función es la única puerta de
+   entrada válida.
+
+5. **Los `Input` deben ser perezosos** (`sources::lazy::LazyFfmpegSource`).
+   Construir el audio al encolar lanzaría dos procesos por canción.
+
+6. **Para saltar de pista, usar `player::force_skip_top_track`**: detener,
+   `dequeue(0)` y reanudar, en ese orden.
+
+7. **`TrackEvent::End` no significa "la canción terminó".** También se emite al
+   detener una pista (`PlayMode::Stop`) y al fallar (`PlayMode::Errored`). Filtrar
+   por `PlayMode::End` antes de tratarlo como un final natural, o vaciar la cola
+   con la repetición activada reencolará lo que se acaba de borrar.
+
+8. **Los comandos devuelven `BotError`**, y la respuesta de error vive sólo en
+   `dispatch_command`.
+
+## Entorno de desarrollo
+
+### Requisitos
+
+Para ejecutar el bot: Docker y Docker Compose. Nada más.
+
+Para compilar sin Docker: Rust 1.82 o superior, `cmake`, `libopus-dev` (o
+`opus-devel`), `pkg-config`, y en tiempo de ejecución `ffmpeg` y `yt-dlp`.
+
+### Compilar y probar
+
+Con Rust instalado:
+
 ```bash
-# Development
-cargo build                    # Debug build
-cargo run                      # Run with debug info
-cargo run -- --health-check   # Health check mode
-
-# Production
-cargo build --release          # Optimized build
-STRIP=true cargo build --release  # Stripped binary (~15MB)
-
-# Cross-compilation
-cargo build --target x86_64-unknown-linux-musl --release
+cargo check            # comprobación rápida de tipos
+cargo test             # tests unitarios y de integración
+cargo clippy           # linter
+cargo fmt              # formato
 ```
 
-### 🧪 Testing & Quality
+Sin Rust instalado, lo mismo dentro de un contenedor:
+
 ```bash
-# Testing
-cargo test                     # Unit tests
-cargo test --test integration  # Integration tests  
-cargo test -- --nocapture      # Tests with output
-cargo test --release           # Optimized test run
-
-# Code Quality
-cargo clippy                   # Linter
-cargo clippy -- -D warnings    # Treat warnings as errors
-cargo fmt                      # Format code
-cargo fmt -- --check           # Verify formatting
-
-# Analysis
-cargo audit                    # Security audit
-cargo outdated                 # Check for updates
-cargo tree                     # Dependency tree
+docker run --rm -v "$PWD":/app -w /app rust:1-bookworm bash -c \
+  "apt-get update -qq && apt-get install -y -qq cmake libopus-dev pkg-config && cargo test"
 ```
 
-### 🐳 Docker Development
+Para iteraciones seguidas conviene montar volúmenes persistentes para el registro
+de crates y el directorio `target`, o cada ejecución recompila todo:
+
 ```bash
-# Container Management
-docker-compose up -d           # Start services
-docker-compose logs -f         # Follow logs
-docker-compose restart         # Restart services
-docker-compose down            # Stop and remove
-
-# Development Workflow
-docker-compose up --build      # Rebuild and start
-docker-compose exec open-music sh  # Access container
-docker stats open-music-bot    # Resource usage
-
-# Cleanup
-docker system prune            # Clean unused resources
-docker builder prune           # Clean build cache
+docker run --rm -v "$PWD":/app -w /app \
+  -v om-cargo-registry:/usr/local/cargo/registry -v om-target:/app/target \
+  rust:1-bookworm cargo check
 ```
 
-## ⚙️ Configuration
+### Ejecutar
 
-### 🌍 Environment Setup
-
-**1. Copy environment template**
 ```bash
-cp .env.example .env
+docker compose build
+docker compose up -d
+docker compose logs -f open-music
+docker compose restart open-music   # por ejemplo, tras cambiar las cookies
 ```
 
-**2. Configure required variables**
-```env
-# Discord (Required)
-DISCORD_TOKEN=your_bot_token_here
-APPLICATION_ID=your_application_id_here
+El compose levanta dos contenedores: el bot y el proveedor de PO tokens, este
+último accesible sólo desde la red interna.
 
-# Development (Optional)
-GUILD_ID=your_test_server_id  # For faster command updates
-```
+Cuidado con el token: si el `.env` local apunta al mismo bot que está en
+producción, arrancarlo en la máquina de desarrollo desconecta al de producción.
+Para probar en local, usá una aplicación de Discord distinta.
 
-### 🎵 Audio Configuration
+## Configuración
 
-| Variable | Default | Range | Description |
-|----------|---------|-------|-------------|
-| `DEFAULT_VOLUME` | 0.5 | 0.0-2.0 | Starting volume (50%) |
-| `OPUS_BITRATE` | 128000 | 64000-510000 | Audio quality (128kbps) |
-| `FRAME_SIZE` | 960 | 120-2880 | Frame size (20ms @ 48kHz) |
-| `MAX_SONG_DURATION` | 7200 | 1-43200 | Max song length (2 hours) |
+Todas las variables se leen del entorno; `Config::load` valida los rangos y
+aborta el arranque si algo no cuadra. La lista completa, con valores por defecto,
+está en `.env.example`.
 
-### 🚀 Performance Tuning
+| Variable | Obligatoria | Notas |
+|---|---|---|
+| `DISCORD_TOKEN` | Sí | Token del bot. |
+| `APPLICATION_ID` | Sí | Identificador de la aplicación. |
+| `GUILD_ID` | No | Si se define, los comandos se registran sólo en ese servidor, lo que propaga en segundos en vez de en una hora. Útil al desarrollar. |
+| `DEFAULT_VOLUME` | No | Entre 0.0 y 2.0. |
+| `OPUS_BITRATE` | No | El techo real lo fija el nivel de boost del servidor. |
+| `MAX_SONG_DURATION` | No | En segundos. |
+| `CACHE_SIZE`, `AUDIO_CACHE_SIZE` | No | Entradas de la caché LRU. |
+| `MAX_QUEUE_SIZE`, `MAX_PLAYLIST_SIZE` | No | Límites de la cola. |
+| `RATE_LIMIT_PER_USER` | No | Comandos por minuto. |
+| `POT_PROVIDER_URL` | No | Por defecto apunta al servicio del compose. |
+| `RUST_LOG` | No | Filtro de trazas, por ejemplo `info,open_music=debug`. |
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CACHE_SIZE` | 100 | Metadata cache entries |
-| `AUDIO_CACHE_SIZE` | 50 | Audio file cache entries |
-| `MAX_QUEUE_SIZE` | 1000 | Maximum queue length |
-| `WORKER_THREADS` | Auto | Worker thread count |
-| `RATE_LIMIT_PER_USER` | 20 | Commands/minute per user |
+## Patrones del código
 
-### 🔧 Development-Specific Settings
+### Errores
 
-```env
-# Detailed Logging
-RUST_LOG=debug,serenity=info,songbird=debug
-RUST_BACKTRACE=full
-
-# Development Paths (if not using Docker)
-DATA_DIR=./data
-CACHE_DIR=./cache
-
-# Feature Flags
-ENABLE_EQUALIZER=true
-ENABLE_AUTOPLAY=false
-```
-
-## 📝 Code Patterns & Guidelines
-
-### 🚨 Error Handling
+Dentro de la capa de audio y de las fuentes se usa `anyhow::Result` con contexto.
+En la capa de comandos se usa `BotError`, que es lo que ve el usuario:
 
 ```rust
-// ✅ Good: Use anyhow::Result for fallible operations
-pub async fn play_song(url: &str) -> anyhow::Result<()> {
-    let source = extract_audio(url)
-        .await
-        .with_context(|| format!("Failed to extract: {}", url))?;
-    Ok(())
-}
-
-// ✅ Good: Log errors with context
-if let Err(e) = play_song(&url).await {
-    tracing::error!("Playback failed: {:?}", e);
-    interaction.reply("❌ Could not play song").await?;
-}
+let track = source_manager
+    .get_track_from_url(&query, command.user.id)
+    .await
+    .map_err(|e| BotError::TrackFail(e.to_string()))?;
 ```
 
-### ⚡ Async Operations
+Para las comprobaciones previas existe `verify`, que sirve tanto con `bool` como
+con `Option`:
 
 ```rust
-// ✅ Good: Spawn background tasks for non-blocking operations
-tokio::spawn(async move {
-    if let Err(e) = download_audio(url).await {
-        tracing::warn!("Background download failed: {:?}", e);
-    }
-});
-
-// ✅ Good: Proper mutex handling
-let mut queue = self.queue.lock().await;
-queue.add_song(song);
-drop(queue); // Explicit early release
+verify(bot.player.is_playing(guild_id).await, BotError::NothingPlaying)?;
 ```
 
-### 🎤 Voice Connection Management
+### Bloqueos
+
+`Call` está detrás de un `tokio::sync::Mutex`. Hay que soltarlo antes de
+responder a Discord: una llamada HTTP bajo el bloqueo detiene a todos los demás
+comandos del servidor.
 
 ```rust
-// Voice connections are stored per guild
-type VoiceConnections = DashMap<GuildId, Arc<Mutex<Call>>>;
+let handler = call.lock().await;
+let queue = handler.queue().current_queue();
+drop(handler);
 
-// ✅ Auto-disconnect pattern
-if call.current_channel().is_none() {
-    tracing::info!("Bot alone in channel, disconnecting");
-    let _ = call.leave().await;
-    voice_connections.remove(&guild_id);
-}
+responder(&queue).await?;
 ```
 
-### 🎵 Audio Processing Pipeline
+Los objetos de la caché de serenity (`ctx.cache.guild(..)`) no se pueden mantener
+a través de un `await`. Hay que clonar lo que haga falta antes:
 
 ```rust
-// Symphonia decode -> Opus encode -> Discord
-let decoded = symphonia_decoder.decode(packet)?;
-let opus_frame = opus_encoder.encode(&decoded)?;
-voice_connection.send_audio(opus_frame).await?;
-
-// Real-time equalizer application
-let eq_output = equalizer.process(&audio_samples, &preset);
+let guild = ctx.cache.guild(guild_id).ok_or(BotError::NotInGuild)?.clone();
 ```
 
-## 🔧 Implementation Details
+### Interacciones que tardan
 
-### 📝 Command Registration
+Discord corta la interacción a los tres segundos. Cualquier comando que lance
+`yt-dlp` debe diferir primero y editar después:
 
 ```rust
-// Development: Guild-specific (fast updates)
-if let Some(guild_id) = config.guild_id {
-    GuildId(guild_id).set_application_commands(&ctx, commands).await?;
-}
-
-// Production: Global (slower propagation)
-Command::set_global_application_commands(&ctx, commands).await?;
+defer(ctx, command).await?;
+// ... trabajo lento ...
+edit(ctx, command, "Listo").await
 ```
 
-**Registration Timing:**
-- Guild commands: ~1 second propagation
-- Global commands: ~1 hour propagation
-- Use guild commands for development/testing
+### Trabajo en segundo plano
 
-### 🎵 Queue System Architecture
+Las tareas largas que no deben bloquear la respuesta van en un `tokio::spawn`,
+registrando el error en vez de propagarlo. La carga del resto de una playlist en
+`play_playlist_stream` es el ejemplo de referencia.
 
-```rust
-pub struct MusicQueue {
-    tracks: VecDeque<Track>,
-    current: Option<Track>,
-    repeat_mode: RepeatMode,
-    shuffle: bool,
-    history: VecDeque<Track>,
-}
+## Depuración
 
-// Thread-safe operations
-impl MusicQueue {
-    pub async fn add(&mut self, track: Track) -> Result<()> {
-        if self.tracks.len() >= self.max_size {
-            return Err(anyhow!("Queue is full"));
-        }
-        self.tracks.push_back(track);
-        Ok(())
-    }
-}
-```
+### Trazas
 
-### 💾 Cache Strategy
-
-```rust
-// Multi-layered caching approach
-pub struct MusicCache {
-    metadata: LruCache<String, TrackMetadata>,    // Song info
-    audio_data: LruCache<String, Vec<u8>>,       // Decoded audio
-    thumbnails: LruCache<String, Vec<u8>>,       // Album artwork
-}
-
-// TTL-based expiration
-if let Some(cached) = cache.get_with_expiry(&key) {
-    if !cached.is_expired() {
-        return Ok(cached.data);
-    }
-}
-```
-
-### 📡 Source Integration
-
-**YouTube Integration (yt-dlp)**
-```rust
-let output = Command::new("yt-dlp")
-    .args(&["-f", "bestaudio", "--get-url", url])
-    .output()
-    .await?;
-    
-let audio_url = String::from_utf8(output.stdout)?
-    .trim()
-    .to_string();
-```
-
-**Direct URL Support**
-```rust
-// Supported formats via Symphonia
-const SUPPORTED_FORMATS: &[&str] = &[
-    "mp3", "wav", "flac", "ogg", "aac", "m4a"
-];
-```
-
-## 📊 Performance Considerations
-
-### 🎯 Performance Targets
-
-| Metric | Target | Typical | Notes |
-|--------|--------|---------|-------|
-| **Memory Usage** | <100MB | 50-80MB | Includes cache |
-| **CPU Usage (Idle)** | <5% | 1-2% | Single core |
-| **CPU Usage (Playing)** | <20% | 10-15% | Per concurrent stream |
-| **Audio Latency** | <100ms | 50-80ms | End-to-end |
-| **Command Response** | <500ms | 100-200ms | Slash commands |
-| **Concurrent Guilds** | 100+ | 50+ | Production tested |
-
-### ⚡ Optimization Strategies
-
-**Cargo Profile Optimizations**
-```toml
-[profile.release]
-opt-level = 3           # Maximum optimization
-lto = true             # Link-time optimization
-codegen-units = 1      # Single codegen unit
-strip = true           # Strip debug symbols
-panic = "abort"        # Smaller binary size
-```
-
-**Memory Management**
-```rust
-// Use bounded channels to prevent memory leaks
-let (tx, rx) = flume::bounded(100);
-
-// Pool expensive resources
-static OPUS_ENCODER: Lazy<OpusEncoder> = Lazy::new(|| {
-    OpusEncoder::new(48000, Channels::Stereo, Application::Audio)
-        .expect("Failed to create Opus encoder")
-});
-```
-
-**Async Performance**
-```rust
-// Use spawn_blocking for CPU-intensive tasks
-let decoded = tokio::task::spawn_blocking(move || {
-    symphonia_decode(audio_data)
-}).await??;
-
-// Batch operations when possible
-let results = futures::future::join_all(
-    urls.iter().map(|url| extract_metadata(url))
-).await;
-```
-
-## 🔍 Troubleshooting & Debugging
-
-### ❌ Common Issues
-
-| Issue | Cause | Solution |
-|-------|-------|----------|
-| **Compilation fails** | Missing system deps | `apt install cmake libopus-dev libssl-dev pkg-config` |
-| **yt-dlp not working** | Outdated version | `pip3 install -U yt-dlp` |
-| **No audio playback** | Missing voice perms | Check bot permissions in Discord |
-| **High memory usage** | Cache too large | Reduce `CACHE_SIZE` and `AUDIO_CACHE_SIZE` |
-| **Slow responses** | Limited resources | Increase Docker memory limits |
-| **Connection timeouts** | Network issues | Check firewall/proxy settings |
-
-### 🐛 Debugging Tools
-
-**Logging Configuration**
 ```bash
-# Detailed logging
-export RUST_LOG="debug,serenity=info,songbird=debug,hyper=warn"
-export RUST_BACKTRACE=full
-
-# Component-specific debugging
-export RUST_LOG="open_music::audio=trace,open_music::bot=debug"
+RUST_LOG=debug cargo run
+RUST_LOG=open_music=trace,songbird=debug cargo run   # detalle de voz
+docker compose logs -f open-music | grep -i error
 ```
 
-**Performance Monitoring**
+### Problemas frecuentes al desarrollar
+
+- **Los comandos no aparecen en Discord.** Los globales tardan hasta una hora en
+  propagarse. Definí `GUILD_ID` para registrarlos en un servidor concreto.
+- **El bot entra al canal pero no suena nada.** Casi siempre es yt-dlp: revisá si
+  las cookies siguen siendo válidas. Ver [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+- **Un comando responde "la interacción falló".** Faltó diferir antes de una
+  operación lenta, o se respondió dos veces.
+
+### Antes de mandar un cambio
+
 ```bash
-# Memory profiling
-valgrind --tool=memcheck ./target/release/open-music
-
-# CPU profiling  
-perf record -g ./target/release/open-music
-perf report
-
-# Real-time monitoring
-top -p $(pgrep open-music)
-htop -p $(pgrep open-music)
+cargo fmt
+cargo clippy --all-targets
+cargo test
+docker compose build
 ```
 
-**Health Checks**
-```bash
-# Built-in health check
-./target/release/open-music --health-check
+## Recursos
 
-# Docker container health
-docker-compose exec open-music /app/open-music --health-check
-
-# Dependency verification
-yt-dlp --version
-ffmpeg -version
-opus_demo --help
-```
-
-### 📋 Development Checklist
-
-**Before Committing:**
-- [ ] `cargo fmt` - Code formatting
-- [ ] `cargo clippy` - Linter warnings
-- [ ] `cargo test` - All tests pass
-- [ ] `cargo audit` - Security vulnerabilities
-- [ ] Update documentation if applicable
-- [ ] Test with sample Discord server
-
-**Before Release:**
-- [ ] Update version in `Cargo.toml`
-- [ ] Build release binary: `cargo build --release`
-- [ ] Test Docker build: `docker-compose build`
-- [ ] Update documentation
-- [ ] Create git tag: `git tag v1.x.x`
-
----
-
-## 📚 Additional Resources
-
-- **[Serenity Documentation](https://docs.rs/serenity/)**
-- **[Songbird Guide](https://github.com/serenity-rs/songbird)**
-- **[Discord Developer Portal](https://discord.com/developers/applications)**
-- **[Rust Async Book](https://rust-lang.github.io/async-book/)**
-- **[Tokio Tutorial](https://tokio.rs/tokio/tutorial)**
-
-**Project Links:**
-- Issues: Crear issues en el repositorio para bugs y mejoras
-- Discussions: Usar issues para discusiones técnicas
-- Documentation: Ver README.md y archivos .md del proyecto
+- [Documentación de serenity](https://docs.rs/serenity)
+- [Documentación de songbird](https://docs.rs/songbird)
+- [Documentación de yt-dlp](https://github.com/yt-dlp/yt-dlp#readme)
+- [Filtros de audio de ffmpeg](https://ffmpeg.org/ffmpeg-filters.html#Audio-Filters)

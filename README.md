@@ -1,59 +1,63 @@
-# 🎵 Open Music Bot
+# Open Music Bot
 
-**Bot de música para Discord de alto rendimiento construido en Rust 🦀**
+**Bot de música para Discord escrito en Rust.**
 
-Motor único de reproducción con cola real, ecualizador y normalización por ffmpeg,
-audio Opus nativo y extracción vía yt-dlp con soporte para el bloqueo anti-bot de
-YouTube. Footprint mínimo (~100 MB RAM).
+Reproduce audio de YouTube en canales de voz de Discord. Usa la cola nativa de
+songbird, ecualización y normalización de volumen con ffmpeg, y extracción con
+yt-dlp preparada para el bloqueo anti-bot de YouTube.
 
-> **Estado:** en producción. Audio E2EE (DAVE) soportado vía Songbird 0.6.
+> **Estado:** en producción. Audio E2EE (DAVE) soportado vía songbird 0.6.
 
-## ⚡ Características
+## Características
 
-**Core**
-- **Rust 2021**, Serenity `0.12` + **Songbird `0.6`** (soporte **DAVE/E2EE**, obligatorio
-  en Discord desde 2026-03).
-- 24 comandos slash con `dm_permission`, embeds ricos y botones nativos.
-- Cola real con auto-avance, shuffle, loop e historial.
-- Tests unitarios de config y storage.
+**Núcleo**
+- Rust 2021, serenity `0.12` y songbird `0.6` (soporte DAVE/E2EE, obligatorio en
+  Discord desde marzo de 2026).
+- 25 comandos slash con embeds y botones nativos.
+- La cola es la de songbird (`builtin-queue`): avance automático, aleatorio,
+  repetición e historial se apoyan en ella, sin estado duplicado.
 
 **Audio**
-- **Un solo motor** (`AudioPlayer`): cola, reproducción, efectos y eventos unificados.
-- **Calidad Opus configurable** (por defecto **128 kbps**; el techo real lo marca el nivel
-  de boost del servidor de Discord). Fuente preferida **Opus/48 kHz** para evitar resample.
-  Ver [`docs/AUDIO_QUALITY.md`](docs/AUDIO_QUALITY.md).
-- **EQ real + loudness normalization** vía filtros **ffmpeg** (`loudnorm` + 8 presets:
-  Bass, Pop, Rock, Jazz, Classical, Electronic, Vocal, Flat).
-- Control de volumen 0–200 %.
+- Bitrate de Opus configurable (128 kbps por defecto); el techo real lo fija el
+  nivel de boost del servidor. Se prefiere la fuente Opus a 48 kHz para evitar un
+  remuestreo. Ver [`docs/AUDIO_QUALITY.md`](docs/AUDIO_QUALITY.md).
+- Ecualización y normalización de sonoridad con filtros de ffmpeg (`loudnorm` más
+  ocho presets: Bass, Pop, Rock, Jazz, Classical, Electronic, Vocal y Flat).
+- Control de volumen del 0 al 200 %.
 
-**YouTube (anti-bot)**
-- Extracción con **yt-dlp** en streaming directo (sin descargas intermedias).
-- **PO Token provider** (`bgutil`) como servicio del compose + **cookies** de cuenta.
-  Ver [`docs/COOKIES.md`](docs/COOKIES.md).
-- **Playlists en streaming**: la música arranca apenas se extrae el primer tema y el
-  resto se encola en segundo plano (rápido incluso en listas largas). Soporta
-  `playlist?list=`, `watch?v=...&list=` y radios/mixes (`list=RD`, con tope de 50).
+**YouTube**
+- Extracción con yt-dlp en streaming, sin descargas intermedias.
+- Proveedor de PO token (`bgutil`) como servicio del compose, más cookies de
+  cuenta. Ver [`docs/COOKIES.md`](docs/COOKIES.md).
+- Las playlists se cargan en streaming: la música arranca en cuanto se extrae el
+  primer tema y el resto se encola por detrás. `/play` con un enlace de lista
+  carga hasta 15 temas; para la lista completa está `/playlist`.
 
 **Operación**
-- Monitoreo y métricas en tiempo real, health check integrado.
-- Docker multi-stage (build Debian/glibc, runtime con ffmpeg + yt-dlp + deno).
+- Métricas, comprobación de salud y registro estructurado.
+- Imagen Docker multi-etapa (compilación en Debian, runtime con ffmpeg, yt-dlp y
+  deno).
 
-## 🏗️ Arquitectura
+## Arquitectura
 
 ```
-Usuario: /play <query|url|playlist>
-        │
-        ▼
-yt-dlp (búsqueda / extracción de playlist en streaming lazy)
-        │
-        ▼
-AudioPlayer  ──►  MusicQueue (cola, auto-avance)
-        │
-        ▼ (por track)
-yt-dlp -o -  │  ffmpeg -af "loudnorm,<eq>"  ──►  ChildContainer
-        │                                              │
-        ▼                                              ▼
-   PO Token (bgutil) + cookies            songbird → Opus 128k → Discord (DAVE/E2EE)
+/play <búsqueda | url | playlist>
+        |
+        v
+  yt-dlp  (búsqueda, o extracción de la lista en streaming)
+        |
+        v
+  AudioPlayer.play()  ->  cola nativa de songbird (TrackQueue)
+        |
+        |  songbird pide el audio sólo cuando la pista va a sonar
+        v
+  LazyFfmpegSource::create()
+        |
+        v
+  yt-dlp -o -  |  ffmpeg -af "loudnorm,<eq>"  ->  ChildContainer
+        |                                              |
+        v                                              v
+  PO token (bgutil) + cookies              songbird -> Opus -> Discord (DAVE)
 ```
 
 Detalle completo en [`docs/AUDIO_PIPELINE.md`](docs/AUDIO_PIPELINE.md).
@@ -72,16 +76,19 @@ Detalle completo en [`docs/AUDIO_PIPELINE.md`](docs/AUDIO_PIPELINE.md).
 ```
 src/
 ├── audio/
-│   ├── player.rs    # Motor único: cola, reproducción, auto-avance, eventos
-│   ├── queue.rs     # Cola (shuffle, loop, historial)
+│   ├── player.rs    # Operaciones sobre la cola nativa de songbird
+│   ├── queue.rs     # Metadatos pegados a cada pista + vistas para la UI
+│   ├── events.rs    # Handlers de songbird (Play, End, inactividad)
 │   └── effects.rs   # Construye la cadena de filtros ffmpeg (loudnorm + EQ)
 ├── bot/
-│   ├── handlers.rs  # Dispatch de comandos y lógica de /play (incl. playlist streaming)
-│   ├── commands.rs  # Registro de comandos slash
-│   └── events.rs    # Eventos de Discord
+│   ├── handlers.rs  # Validación y dispatch de comandos (incl. playlist streaming)
+│   ├── connection.rs# Estado de voz: usuario vs bot
+│   └── commands.rs  # Registro de comandos slash
 ├── sources/
-│   └── ytdlp_optimized.rs  # Búsqueda, extracción, cadena yt-dlp|ffmpeg, PO token, cookies
+│   ├── lazy.rs      # Fuente perezosa: yt-dlp | ffmpeg sólo al reproducir
+│   └── ytdlp_optimized.rs  # Búsqueda, extracción, PO token, cookies
 ├── ui/{embeds,buttons}.rs  # Embeds y controles
+├── errors.rs               # Errores de dominio con mensajes en español
 ├── cache/, monitoring/     # Caché LRU y métricas
 └── config.rs               # Configuración por entorno
 docs/
@@ -90,7 +97,7 @@ docs/
 └── COOKIES.md          # Configuración y refresco de cookies de YouTube
 ```
 
-## 🚀 Inicio rápido (Docker)
+## Inicio rápido (Docker)
 
 ```bash
 cp .env.example .env
@@ -106,7 +113,7 @@ proveedor de PO tokens, accesible solo en la red interna del compose).
 > proveer cookies de una cuenta secundaria en `config/cookies.txt`. El método correcto
 > (exportar en incógnito para que no caduquen) está en [`docs/COOKIES.md`](docs/COOKIES.md).
 
-## 🎛️ Comandos
+## Comandos
 
 **Reproducción**
 ```
@@ -131,7 +138,7 @@ proveedor de PO tokens, accesible solo en la red interna del compose).
 /help   /health   /metrics
 ```
 
-## ⚙️ Configuración (.env)
+## Configuración (.env)
 
 ```env
 # === DISCORD (requerido) ===
@@ -166,7 +173,7 @@ RUST_LOG=info,open_music=debug
 RUST_BACKTRACE=1
 ```
 
-## 🍪 YouTube: cookies y PO token
+## YouTube: cookies y PO token
 
 YouTube bloquea las IPs de datacenter con *"Sign in to confirm you're not a bot"*
 (`LOGIN_REQUIRED`). Para reproducir hacen falta **las dos cosas**:
@@ -181,7 +188,7 @@ Puntos clave (detalle en [`docs/COOKIES.md`](docs/COOKIES.md)):
   degradar el `config/cookies.txt` original (yt-dlp lo reescribiría).
 - `config/cookies.txt` está en `.gitignore` — nunca commitearlo.
 
-## 🐳 Docker
+## Docker
 
 ```bash
 docker compose build              # construir (build largo: compila Rust + DAVE/MLS)
@@ -196,7 +203,7 @@ Notas:
 - El bot no necesita puertos entrantes; el `8080` interno (métricas) se mapea a
   `127.0.0.1:8095` para no chocar con otros servicios del host.
 
-## 🚨 Solución de problemas
+## Solución de problemas
 
 | Síntoma (en logs) | Causa | Solución |
 |---|---|---|
@@ -206,22 +213,30 @@ Notas:
 | `symphonia probe reach EOF at 0 bytes` | yt-dlp devolvió 0 bytes (bloqueo) | Mismo que arriba (cookies) |
 | `DISCORD_TOKEN not found` | Falta el token | Configurar `.env` |
 
-## 🧪 Desarrollo
+## Desarrollo
 
-Sin toolchain Rust local, todo se valida vía Docker:
+No hace falta tener Rust instalado: todo se valida en un contenedor.
+
 ```bash
-docker build --target builder -t openmusic-check .   # valida compilación
-cargo test    # (si tenés Rust local) tests de config y storage
+# Comprobar que compila
+docker run --rm -v "$PWD":/app -w /app rust:1-bookworm \
+  bash -c "apt-get update -qq && apt-get install -y -qq cmake libopus-dev pkg-config && cargo check"
+
+# Tests
+docker run --rm -v "$PWD":/app -w /app rust:1-bookworm \
+  bash -c "apt-get update -qq && apt-get install -y -qq cmake libopus-dev pkg-config && cargo test"
 ```
 
-## 📄 Licencia
+Con Rust local basta con `cargo check`, `cargo test` y `cargo clippy`.
+
+La arquitectura interna, las invariantes que no hay que romper y la guía para
+trabajar en el código están en [DEVELOPMENT.md](DEVELOPMENT.md). Para contribuir,
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Licencia
 
 MIT — ver [LICENSE](LICENSE).
 
 ---
 
-<div align="center">
-
-**🦀 Rust · Serenity & Songbird · ffmpeg · yt-dlp**
-
-</div>
+Construido con Rust, serenity, songbird, ffmpeg y yt-dlp.

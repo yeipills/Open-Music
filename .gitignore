@@ -10,7 +10,14 @@
 config.toml
 config.json
 settings.json
-# CLAUDE.md es privado del usuario
+
+# === HERRAMIENTAS DE DESARROLLO LOCALES ===
+# Instrucciones para asistentes de IA: son notas de trabajo, no documentación
+# del proyecto. Lo que sirve a cualquiera vive en DEVELOPMENT.md.
+CLAUDE.md
+.claude/
+.serena/
+.mcp.json
 
 # === YT-DLP & COOKIES ===
 config/cookies.txt

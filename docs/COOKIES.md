@@ -14,7 +14,7 @@ El bot combina dos mecanismos:
 
 Ambos son necesarios. Ver el pipeline completo en [AUDIO_PIPELINE.md](./AUDIO_PIPELINE.md).
 
-## ⚠️ Seguridad — leer antes
+## Seguridad — leer antes
 
 - Las cookies dan acceso a la cuenta de Google asociada. **Usar SIEMPRE una cuenta
   secundaria/desechable, nunca la cuenta personal.** Si se filtran, se compromete esa cuenta.
@@ -24,7 +24,7 @@ Ambos son necesarios. Ver el pipeline completo en [AUDIO_PIPELINE.md](./AUDIO_PI
 
 ## Cómo exportar las cookies (MÉTODO INCÓGNITO — importante)
 
-> ⚠️ **No exportes desde una sesión normal de navegador.** YouTube **rota** las
+>  **No exportes desde una sesión normal de navegador.** YouTube **rota** las
 > cookies de sesiones activas como medida de seguridad, invalidando las que
 > exportaste a los pocos minutos (síntoma: *"cookies are no longer valid, rotated
 > in the browser"*). La solución es exportar desde una ventana de incógnito y
@@ -77,7 +77,7 @@ docker compose exec -T open-music sh -c \
 (El `Broken pipe` al cortar con `head` es benigno: solo significa que se cerró el stream.)
 
 Prueba final: en Discord, entrar a un canal de voz y usar `/play <tema>`. En los logs
-debe aparecer `🎵 Reproduciendo: ...` sin `EOF 0 bytes` ni `no suitable format reader`.
+debe aparecer ` Reproduciendo: ...` sin `EOF 0 bytes` ni `no suitable format reader`.
 
 ## Cuándo refrescarlas
 
