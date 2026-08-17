@@ -33,19 +33,19 @@ cookies.txt
 /data/
 
 # === LOGS ===
-logs/
+/logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
 # === CACHE & TEMP ===
-audio_cache/
-temp_audio/
-downloads/
-bot_cache/
-voice_cache/
-playlist_cache/
+/audio_cache/
+/temp_audio/
+/downloads/
+/bot_cache/
+/voice_cache/
+/playlist_cache/
 /cache/
 *.tmp
 *.temp
@@ -84,11 +84,11 @@ Thumbs.db
 *.pid.lock
 
 # === METRICS & MONITORING ===
-metrics/
-monitoring/
+/metrics/
+/monitoring/
 
 # === TEST COVERAGE ===
-coverage/
+/coverage/
 lcov.info
 *.profraw
 
@@ -102,7 +102,7 @@ ROADMAP.draft.md
 *.key
 *.pem
 *.p12
-secrets/
+/secrets/
 .secrets/
 
 # === DEVELOPMENT TOOLS ===
