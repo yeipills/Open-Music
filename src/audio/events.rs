@@ -17,7 +17,10 @@ use serenity::{
     http::Http,
     model::id::{ChannelId, GuildId},
 };
-use songbird::{tracks::PlayMode, Event, EventContext, EventHandler, Songbird};
+use songbird::{
+    events::context_data::DisconnectReason, tracks::PlayMode, Event, EventContext, EventHandler,
+    Songbird,
+};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc, Weak,
@@ -136,9 +139,14 @@ impl EventHandler for DriverDisconnectHandler {
             return None;
         };
 
-        // `reason == None` significa que la desconexión la pedimos nosotros
-        // (`/leave`, cambio de canal): ahí no hay nada que reparar.
+        // Una desconexión intencionada no es una caída. Songbird la señala de dos
+        // formas distintas —`None`, y `Some(Requested)` cuando viene de
+        // `Driver::leave`— y hay que descartar ambas: tratar un `/leave` o un
+        // cambio de canal como avería cortaría la música al mover el bot.
         let reason = data.reason?;
+        if reason == DisconnectReason::Requested {
+            return None;
+        }
 
         warn!(
             "Conexión de voz caída en guild {} ({:?}, {:?}); libero el Call",
