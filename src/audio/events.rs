@@ -23,8 +23,9 @@ use songbird::{
 };
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Arc, Weak,
+    Arc, Mutex, Weak,
 };
+use std::time::{Duration, Instant};
 use tracing::{info, warn};
 
 use crate::audio::{
@@ -166,6 +167,74 @@ impl EventHandler for DriverDisconnectHandler {
                 player.forget_guild(guild_id);
             }
         });
+
+        None
+    }
+}
+
+/// Avisa en el canal de texto cuando una pista no se puede reproducir.
+///
+/// Sin esto, un fallo de descarga es invisible: songbird marca la pista como
+/// `Errored`, la cola pasa a la siguiente y quien pidió la canción sólo percibe
+/// silencio. El caso real que motivó el handler fue YouTube devolviendo una
+/// respuesta degradada, con el error enterrado en las trazas del servidor.
+///
+/// Se limita a un aviso por minuto: cuando el problema es la conexión con
+/// YouTube fallan todas las pistas de la cola en cadena, y no tiene sentido
+/// publicar quince mensajes iguales.
+pub struct TrackErrorHandler {
+    pub http: Arc<Http>,
+    pub channel_id: ChannelId,
+    pub last_notice: Arc<Mutex<Option<Instant>>>,
+}
+
+impl TrackErrorHandler {
+    const SILENCIO_ENTRE_AVISOS: Duration = Duration::from_secs(60);
+
+    fn deberia_avisar(&self) -> bool {
+        let Ok(mut ultimo) = self.last_notice.lock() else {
+            return false;
+        };
+        let ahora = Instant::now();
+        let toca = ultimo
+            .map(|t| ahora.duration_since(t) >= Self::SILENCIO_ENTRE_AVISOS)
+            .unwrap_or(true);
+        if toca {
+            *ultimo = Some(ahora);
+        }
+        toca
+    }
+}
+
+#[async_trait]
+impl EventHandler for TrackErrorHandler {
+    async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
+        let EventContext::Track(tracks) = ctx else {
+            return None;
+        };
+
+        for (state, handle) in tracks.iter() {
+            let PlayMode::Errored(error) = &state.playing else {
+                continue;
+            };
+            let handle: &songbird::tracks::TrackHandle = handle;
+            let titulo = meta_of(handle).title.clone();
+
+            warn!("No se pudo reproducir «{}»: {:?}", titulo, error);
+
+            if !self.deberia_avisar() {
+                continue;
+            }
+
+            let aviso = format!(
+                "No pude reproducir **{titulo}** y paso a la siguiente. \
+                 Si se repite con todas, es que YouTube está rechazando las \
+                 descargas: suele arreglarse renovando las cookies."
+            );
+            if let Err(e) = self.channel_id.say(&self.http, aviso).await {
+                warn!("No se pudo avisar del fallo de reproducción: {e}");
+            }
+        }
 
         None
     }

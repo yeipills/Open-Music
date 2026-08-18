@@ -30,7 +30,10 @@ pub mod search;
 
 use crate::{
     audio::{
-        events::{DriverDisconnectHandler, IdleHandler, TrackEndHandler, TrackPlayHandler},
+        events::{
+            DriverDisconnectHandler, IdleHandler, TrackEndHandler, TrackErrorHandler,
+            TrackPlayHandler,
+        },
         player::AudioPlayer,
     },
     cache::MusicCache,
@@ -157,6 +160,15 @@ impl OpenMusicBot {
                 TrackEndHandler {
                     guild_id,
                     player: Arc::downgrade(&self.player),
+                },
+            );
+
+            handler.add_global_event(
+                Event::Track(TrackEvent::Error),
+                TrackErrorHandler {
+                    http: ctx.http.clone(),
+                    channel_id: text_channel_id,
+                    last_notice: Arc::new(std::sync::Mutex::new(None)),
                 },
             );
 

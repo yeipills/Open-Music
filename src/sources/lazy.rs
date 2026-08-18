@@ -83,8 +83,19 @@ impl LazyFfmpegSource {
         let mut ytdlp_cmd = Command::new("yt-dlp");
         ytdlp_cmd.args([
             "--ignore-config",
+            // Sólo audio progresivo, y nunca vídeo.
+            //
+            // El selector anterior terminaba en `best`, que es cualquier
+            // formato: cuando YouTube degrada la respuesta y deja sólo HLS,
+            // yt-dlp caía ahí y se ponía a bajar 84 MB de vídeo fragmentado.
+            // HLS no se puede transmitir por una tubería —yt-dlp junta los
+            // fragmentos antes de emitir—, así que ffmpeg recibía cero bytes y
+            // la canción quedaba en silencio sin explicación.
+            //
+            // Excluyendo `m3u8` y sin recurso a vídeo, en ese caso yt-dlp falla
+            // de inmediato y el fallo se ve, que es mucho mejor que un silencio.
             "-f",
-            "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best",
+            "bestaudio[acodec=opus][protocol!*=m3u8]/bestaudio[ext=webm][protocol!*=m3u8]/bestaudio[protocol!*=m3u8]",
             "-o",
             "-",
             "--no-playlist",
