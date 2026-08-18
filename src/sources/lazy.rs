@@ -80,40 +80,30 @@ impl LazyFfmpegSource {
         let cookies = YtDlpOptimizedClient::cookies_working_copy();
         let pot_arg = pot_extractor_arg();
 
-        let mut ytdlp_cmd = Command::new("yt-dlp");
-        ytdlp_cmd.args([
-            "--ignore-config",
-            // Sólo audio progresivo, y nunca vídeo.
-            //
-            // El selector anterior terminaba en `best`, que es cualquier
-            // formato: cuando YouTube degrada la respuesta y deja sólo HLS,
-            // yt-dlp caía ahí y se ponía a bajar 84 MB de vídeo fragmentado.
-            // HLS no se puede transmitir por una tubería —yt-dlp junta los
-            // fragmentos antes de emitir—, así que ffmpeg recibía cero bytes y
-            // la canción quedaba en silencio sin explicación.
-            //
-            // Excluyendo `m3u8` y sin recurso a vídeo, en ese caso yt-dlp falla
-            // de inmediato y el fallo se ve, que es mucho mejor que un silencio.
-            "-f",
-            "bestaudio[acodec=opus][protocol!*=m3u8]/bestaudio[ext=webm][protocol!*=m3u8]/bestaudio[protocol!*=m3u8]",
-            "-o",
-            "-",
-            "--no-playlist",
-            "--no-check-certificate",
-            "--geo-bypass",
-            "--force-ipv4",
-            // No verificar formatos: ya elegimos uno concreto con -f y cada
-            // verificación es un HEAD extra que retrasa el arranque.
-            "--no-check-formats",
-            "--extractor-args",
-            &pot_arg,
-            "--quiet",
-        ]);
-        if let Some(ref c) = cookies {
-            ytdlp_cmd.args(["--cookies", c]);
-        }
+        // Se intenta primero por `music.youtube.com` y sólo si falla por el
+        // dominio normal. No es un capricho: YouTube aplica su degradación
+        // anti-datacenter **por dominio**. Medido en el servidor con la misma
+        // IP, las mismas cookies y el mismo vídeo, en un momento en que
+        // youtube.com estaba bloqueado:
+        //
+        //   youtube.com        -> 0 formatos de sólo audio (sólo HLS de vídeo)
+        //   music.youtube.com  -> 4 formatos de sólo audio, descarga correcta
+        //
+        // El encadenado con `||` hace de reserva sin coste cuando el primero
+        // funciona: si el vídeo no está en el catálogo de Música —los no
+        // musicales no lo están— yt-dlp sale con error sin haber emitido nada y
+        // el shell lanza el segundo intento sobre la misma tubería.
+        let url_music = a_youtube_music(&self.url);
+        let orden = format!(
+            "{} || {}",
+            comando_ytdlp(&url_music, cookies.as_deref(), &pot_arg),
+            comando_ytdlp(&self.url, cookies.as_deref(), &pot_arg),
+        );
+
+        let mut ytdlp_cmd = Command::new("sh");
         ytdlp_cmd
-            .arg(&self.url)
+            .arg("-c")
+            .arg(&orden)
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
 
@@ -219,5 +209,87 @@ fn aux_metadata_from(track: &TrackSource) -> AuxMetadata {
         thumbnail: track.thumbnail(),
         source_url: Some(track.url()),
         ..AuxMetadata::default()
+    }
+}
+
+/// Reescribe una URL de YouTube a su equivalente en YouTube Music.
+///
+/// Sólo cambia el anfitrión: el identificador del vídeo es el mismo en ambos
+/// sitios. Si la URL no es reconocible se devuelve intacta, y el intento por
+/// Música simplemente fallará y se usará la de reserva.
+fn a_youtube_music(url: &str) -> String {
+    url.replace("://www.youtube.com/", "://music.youtube.com/")
+        .replace("://youtube.com/", "://music.youtube.com/")
+        .replace("://m.youtube.com/", "://music.youtube.com/")
+}
+
+/// Escapa un valor para incrustarlo en una orden de shell.
+fn entrecomillar(valor: &str) -> String {
+    format!("'{}'", valor.replace('\'', "'\\''"))
+}
+
+/// Construye la orden de yt-dlp que vuelca el audio por la salida estándar.
+fn comando_ytdlp(url: &str, cookies: Option<&str>, pot_arg: &str) -> String {
+    let mut orden = String::from("yt-dlp --ignore-config");
+    // Sólo audio progresivo, y nunca vídeo. El selector anterior terminaba en
+    // `best`, que acepta cualquier formato: cuando YouTube degrada la respuesta
+    // y deja sólo HLS, yt-dlp se ponía a bajar decenas de megas de vídeo
+    // fragmentado. HLS no se puede transmitir por una tubería —yt-dlp junta los
+    // fragmentos antes de emitir—, así que ffmpeg recibía cero bytes y la
+    // canción quedaba en silencio. Excluyendo `m3u8` y sin recurso a vídeo, en
+    // ese caso yt-dlp falla de inmediato y el fallo se ve.
+    orden.push_str(" -f 'bestaudio[acodec=opus][protocol!*=m3u8]/bestaudio[ext=webm][protocol!*=m3u8]/bestaudio[protocol!*=m3u8]'");
+    orden.push_str(" -o - --no-playlist --no-check-certificate --geo-bypass --force-ipv4");
+    // No verificar formatos: ya elegimos uno concreto con -f y cada
+    // verificación es una petición extra que retrasa el arranque.
+    orden.push_str(" --no-check-formats --quiet");
+    orden.push_str(&format!(" --extractor-args {}", entrecomillar(pot_arg)));
+    if let Some(c) = cookies {
+        orden.push_str(&format!(" --cookies {}", entrecomillar(c)));
+    }
+    orden.push_str(&format!(" {}", entrecomillar(url)));
+    orden
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reescribe_a_youtube_music() {
+        assert_eq!(
+            a_youtube_music("https://www.youtube.com/watch?v=abc123"),
+            "https://music.youtube.com/watch?v=abc123"
+        );
+        assert_eq!(
+            a_youtube_music("https://youtube.com/watch?v=abc123"),
+            "https://music.youtube.com/watch?v=abc123"
+        );
+        // Una URL ya de Música se queda igual, no se duplica el anfitrión.
+        assert_eq!(
+            a_youtube_music("https://music.youtube.com/watch?v=abc123"),
+            "https://music.youtube.com/watch?v=abc123"
+        );
+    }
+
+    #[test]
+    fn entrecomillado_resiste_comillas() {
+        assert_eq!(entrecomillar("simple"), "'simple'");
+        // Una comilla simple dentro del valor no debe poder cerrar la cadena.
+        assert_eq!(entrecomillar("a'b"), r#"'a'\''b'"#);
+    }
+
+    #[test]
+    fn la_orden_lleva_reserva_y_no_pide_video() {
+        let orden = format!(
+            "{} || {}",
+            comando_ytdlp("https://music.youtube.com/watch?v=x", None, "pot=1"),
+            comando_ytdlp("https://www.youtube.com/watch?v=x", None, "pot=1"),
+        );
+        assert!(orden.contains("music.youtube.com"));
+        assert!(orden.contains("||"));
+        // Nunca debe poder caer a vídeo ni aceptar HLS.
+        assert!(!orden.contains("/best'"));
+        assert!(orden.contains("protocol!*=m3u8"));
     }
 }
